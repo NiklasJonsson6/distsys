@@ -18,10 +18,10 @@ from threading import Thread  # Thread Management
 # ------------------------------------------------------------------------------------------------------
 
 # Global variables for HTML templates
-board_frontpage_footer_template = open("server/board_frontpage_footer_template.html").read()
-board_frontpage_header_template = open("server/board_frontpage_header_template.html").read()
-boardcontents_template = open("server/boardcontents_template.html").read()
-entry_template = open("server/entry_template.html").read()
+board_frontpage_footer_template = open("lab1/server/board_frontpage_footer_template.html").read()
+board_frontpage_header_template = open("lab1/server/board_frontpage_header_template.html").read()
+boardcontents_template = open("lab1/server/boardcontents_template.html").read()
+entry_template = open("lab1/server/entry_template.html").read()
 
 # ------------------------------------------------------------------------------------------------------
 # Static variables definitions
@@ -258,7 +258,7 @@ if __name__ == '__main__':
 		# We need to write the other vessels IP, based on the knowledge of their number
 		for i in range(1, int(sys.argv[2]) + 1):
 			#vessel_list.append("10.1.0.%d" % i)  # We can add ourselves, we have a test in the propagation
-			vessel_list.append("127.0.0.%d" % i)
+			vessel_list.append("127.0.0.%d" % i) #change this back to 10... to test on mininet
 
 	# We launch a server
 	server = BlackboardServer(('', PORT_NUMBER), BlackboardRequestHandler, vessel_id, vessel_list)
