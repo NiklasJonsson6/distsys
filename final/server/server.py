@@ -19,14 +19,14 @@ from threading import  Thread # Thread Management
 #------------------------------------------------------------------------------------------------------
 
 # Global variables for HTML templates
-board_frontpage_footer_template = open('server/board_frontpage_footer_template.html','r').read()
-board_frontpage_header_template = open('server/board_frontpage_header_template.html','r').read()
-boardcontents_template = open('server/boardcontents_template.html','r').read()
-entry_template = open('server/entry_template.html','r').read()
+board_frontpage_footer_template = open('server/board_frontpage_footer_template.html', 'r').read()
+board_frontpage_header_template = open('server/board_frontpage_header_template.html', 'r').read()
+boardcontents_template = open('server/boardcontents_template.html', 'r').read()
+entry_template = open('server/entry_template.html', 'r').read()
 
 #------------------------------------------------------------------------------------------------------
 # Static variables definitions
-PORT_NUMBER = 8080
+PORT_NUMBER = 8082
 #------------------------------------------------------------------------------------------------------
 
 
@@ -161,11 +161,27 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
 	def do_GET(self ):
 		print("Receiving a GET on path %s" % self.path)
 		# Here, we should check which path was requested and call the right logic based on it
-		
-		self.do_GET_Index()
+		if self.path == '/board':
+			print('not index')
+			self.update_board()
+		else:
+			self.do_GET_Index()
 #------------------------------------------------------------------------------------------------------
 # GET logic - specific path
 #------------------------------------------------------------------------------------------------------
+	def update_board(self):
+		self.set_HTTP_headers(200)
+
+		new_entry = ""
+		for i in self.server.store.keys():
+			entry = entry_template % ("entries/" + str(i), i, self.server.store[i])
+			new_entry += entry
+		newboard = boardcontents_template[:-5]
+		newboard += '<p>'
+		newboard += new_entry
+		newboard += '</div>'
+		self.wfile.write(newboard)
+
 	def do_GET_Index(self):
 		# We set the response status code to 200 (OK)
 		self.set_HTTP_headers(200)
@@ -174,20 +190,21 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
 		html_reponse = board_frontpage_header_template + boardcontents_template + board_frontpage_footer_template
 		new_entry = ""
 		id_max = self.server.current_key
-		if id_max != (-1):
-			for i in self.server.store.keys():
-				entry = entry_template % ("entries/"+str(i), i, self.server.store[i] )
-				new_entry += entry 
-			html_reponse = board_frontpage_header_template + boardcontents_template + new_entry + board_frontpage_footer_template 
 
 
-		#In practice, go over the entries list, 
-		#produce the boardcontents part, 
-		#then construct the full page by combining all the parts ...
+		for i in self.server.store.keys():
+			entry = entry_template % ("entries/"+str(i), i, self.server.store[i] )
+			new_entry += entry
+		newboard = boardcontents_template[:-5]
+		newboard += '<p>'
+		newboard += new_entry
+		newboard += '</div>'
+		html_reponse = board_frontpage_header_template + newboard + board_frontpage_footer_template
+
 		self.wfile.write(html_reponse)
 
 		
-		
+
 #------------------------------------------------------------------------------------------------------
 
 
@@ -249,8 +266,7 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
 			elif ''.join(post_data['action']) == "delete":
 			#delete value
 				self.server.delete_value_in_store(key_up)
-	
-		
+
 		if retransmit:
 			retransmit = False 
 			# do_POST send the message only when the function finishes
