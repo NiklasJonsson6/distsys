@@ -15,6 +15,7 @@ from urllib import urlencode  # Encode POST content into the HTTP header
 from codecs import open  # Open a file
 from threading import Thread  # Thread Management
 from random import randint	#random number
+from time import sleep
 
 # ------------------------------------------------------------------------------------------------------
 
@@ -33,6 +34,38 @@ PORT_NUMBER = 8080
 
 
 # ------------------------------------------------------------------------------------------------------
+#Protocols of communications - actions                   # from   ->    to
+# ------------------------------------------------------------------------------------------------------
+
+#normal vessels contact the leader to add a new entry
+add_leader = "submit_entry_to_leader"                    # normal_vessel -> leader
+
+#the leader send the value with the id to submit in
+#normal vessel
+add_vessels = "submit_on_vessels"                        # leader -> normal_vessel
+
+#normal vessels contact the leader to modify a new entry
+mod_leader = "modify_entry_to_leader"                    # normal_vessel -> leader
+
+#the leader send the new value with the id to modify
+#in normal vessel
+mod_vessels = "submit_on_vessels"                        # leader -> normal_vessel
+
+#normal vessels contact the leader to delete a new entry
+del_leader = "delete_entry_to_leader"                    # normal_vessel -> leader
+
+#the leader send the new value with the id to delete
+#in normal vessel
+del_vessels = "delete_on_vessels"                        # leader -> normal_vessel
+
+
+leader_elec = "leader_election"
+
+# ------------------------------------------------------------------------------------------------------
+#
+# ------------------------------------------------------------------------------------------------------
+
+
 
 
 # ------------------------------------------------------------------------------------------------------
@@ -51,20 +84,29 @@ class BlackboardServer(HTTPServer):
         # The list of other vessels
         self.vessels = vessel_list
         #Leader id
-        self.leader_id = 0
+        self.leader_id = -1
         #list with the random number_vessels
         self.list_num_rand = {}
 
-
 # ------------------------------------------------------------------------------------------------------
     # We add a value received to the store
-    def add_value_to_store(self, value):
+    def add_value_to_store_leader(self, value):
         # We add the value to the store
         # next id
         self.current_key = self.current_key + 1
         # store in the dict
         value = ''.join(value)
         self.store[self.current_key] = value
+
+# ------------------------------------------------------------------------------------------------------
+    # We add a value received to the store
+    def add_value_to_store_normal(self, key, value):
+        # We add the value to the store
+        # next id
+        self.current_key = self.current_key + 1
+        # store in the dict
+        value = ''.join(value)
+        self.store[key] = value
 
 # ------------------------------------------------------------------------------------------------------
     # We modify a value received in the store
@@ -74,15 +116,12 @@ class BlackboardServer(HTTPServer):
             value = ''.join(value)
             self.store[key] = value
 
-
-
 # ------------------------------------------------------------------------------------------------------
     # We delete a value received from the store
     def delete_value_in_store(self, key):
         # we delete a value in the store if it exists
         if key in self.store.keys():
             del self.store[key]
-
 
 # ------------------------------------------------------------------------------------------------------
     # Contact a specific vessel with a set of variables to transmit to it
@@ -118,34 +157,44 @@ class BlackboardServer(HTTPServer):
         # we return if we succeeded or not
         return success
 
-
 # ------------------------------------------------------------------------------------------------------
-    # We send a received value to all the other vessels of the system
+    # We send a received value from leader to all the other vessels of the system
     def propagate_value_to_vessels(self, path, action, key, value):
-        # We iterate through the vessel list
-        for vessel in self.vessels:
-            # We should not send it to our own IP, or we would create an infinite loop of updates
-            if vessel != ("10.1.0.%s" % self.vessel_id):
-                # A good practice would be to try again if the request failed
-                # Here, we do it only once
-                self.contact_vessel(vessel, path, action, key, value)
 
+        if self.leader_id == self.vessel_id:
+        #if I am the leader
+            # We iterate through the vessel list
+            for vessel in self.vessels:
+                # We should not send it to our own IP, or we would create an infinite loop of updates
+                if vessel != ("10.1.0.%s" % self.vessel_id):
+                    # A good practice would be to try again if the request failed
+                    # Here, we do it only once
+                    self.contact_vessel(vessel, path, action, key, value)
 
 # ------------------------------------------------------------------------------------------------------
-    # We send a received value to all the other vessels of the system
-    def propagate_value_to_neighbor(self, path, action, key, list_num):
+    # We send a received value to the leader
+    def propagate_value_to_leader(self, path, action, key, value):
+
+        if self.leader_id != self.vessel_id:
+            vessel = "10.1.0.%s" % self.leader_id
+            self.contact_vessel(vessel, path, action, key, value)
+
+# ------------------------------------------------------------------------------------------------------
+    # We send a received value to all the neighbour's vessels
+    # the graph with all vessels is a ring
+    def propagate_value_to_neighbor(self, path, action, key, value):
         # We only send it to the neighbour
 
         if len(self.vessels) == (self.vessel_id - 1):
         #node with the highest id - his neighbour is the node id = 0
             neighbour_id = 0
-        elif:
+        else:
         #all the other nodes
             neighbour_id = self.vessel_id + 1
 
         vessel = "10.1.0.%s" % neighbour_id
         # A good practice would be to try again if the request failed
-        self.contact_vessel(vessel, path, action, key, list_num)
+        self.contact_vessel(vessel, path, action, key, value)
 
 
 # ------------------------------------------------------------------------------------------------------
@@ -244,62 +293,139 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
         # We should also parse the data received
         # and set the headers for the client
 
+        if self.vessel_id == self.leader_id:
+            #leader - act like a leader
+            self.act_like_a_leader()
+
+        else:
+            self.act_like_normal_node ()
+
+
+#------------------------------------------------------------------------------------------------------
+# Leader node
+    def act_like_a_leader(self):
+
         id_mod_del = -1
         post_data = self.parse_POST_request()
         self.set_HTTP_headers(200)
         retransmit = False
 
         if self.path == "/board":
-            # submit
+        # submit - new entry
             if 'action' in post_data:
-                # update information from other vessels
-                if ''.join(post_data['action']) == "submit":
-                    # new value
-                    self.server.add_value_to_store(''.join(post_data['value']))
+            # new entry from the other normal vessels
+                if ''.join(post_data['action']) == add_leader:
+                    self.server.add_value_to_store_leader(''.join(post_data['value']))
             else:
-                # submit information write by the own vessel
-                self.server.add_value_to_store(post_data['entry'])
-                key = self.server.current_key
-                action = "submit"
-                retransmit = True
+            # submit information write by the own vessel
+                self.server.add_value_to_store_leader(post_data['entry'])
+
+            key = self.server.current_key
+            action = add_vessels
+            retransmit = True
 
 
         elif 'delete' in post_data:
-            # modify or delete
+        # modify or delete in the leader
             id_mod_del = int(''.join(post_data['delete']))
             key = int(self.path[9:])
 
             if id_mod_del == 0:
-                # modify
+            # modify
                 self.server.modify_value_in_store(key, post_data['entry'])
-                action = "modify"
-                retransmit = True
+                action = mod_vessels
 
             elif id_mod_del == 1:
                 # delete
                 self.server.delete_value_in_store(key)
-                action = "delete"
-                retransmit = True
+                action = del_vessels
+
+            retransmit = True
 
 
         elif 'action' in post_data:
-            # update information (modify or delete a string) from another vessel
-            key_up = int(''.join(post_data['key']))
-            if ''.join(post_data['action']) == "modify":
+        # update information (modify or delete a string) from a normal vessel
+            key = int(''.join(post_data['key']))
+
+            if ''.join(post_data['action']) == mod_leader:
+            # update value
+                action = mod_vessels
+                self.server.modify_value_in_store(key, post_data['value'])
+
+            elif ''.join(post_data['action']) == del_leader:
+            # delete value
+                action = del_vessels
+                self.server.delete_value_in_store(key)
+
+            retransmit = True
+
+
+            if retransmit:
+                retransmit = False
+                thread = Thread(target=self.server.propagate_value_to_vessels, args=(self.path, action, key, ''.join(post_data['entry'])))
+                #We kill the process if we kill the server
+                thread.daemon = True
+                # We start the thread
+                thread.start()
+
+
+# ------------------------------------------------------------------------------------------------------
+# Normal node
+    def act_like_normal_node (self):
+
+        id_mod_del = -1
+        post_data = self.parse_POST_request()
+        self.set_HTTP_headers(200)
+
+        if self.path == "/board":
+            if 'action' in post_data:
+            # received new entry from the leader to post
+                if ''.join(post_data['action']) == add_vessels:
+                    # new value
+                    key = int(''.join(post_data['key']))
+                    self.server.add_value_to_store_normal(key, ''.join(post_data['value']))
+
+            else:
+            #contact the leader to a new entry
+                action = add_leader
+                self.propagate_value_to_leader( self.path, action, None, ''.join(post_data['entry']) )
+
+
+        elif 'delete' in post_data:
+            # contact the leader to update information (modify or delete)
+            id_mod_del = int(''.join(post_data['delete']))
+            key = int(self.path[9:])
+
+            if id_mod_del == 0:
+            # modify
+                action = mod_leader
+                self.propagate_value_to_leader( self.path, action, key, ''.join(post_data['entry']) )
+
+            elif id_mod_del == 1:
+                # delete
+                action = del_leader
+                self.propagate_value_to_leader( self.path, action, key, None )
+
+
+        elif 'action' in post_data:
+            # update information (modify or delete a string) from the leader
+            key = int(''.join(post_data['key']))
+
+            if ''.join(post_data['action']) == mod_vessels:
                 # update value
-                self.server.modify_value_in_store(key_up, post_data['value'])
+                self.server.modify_value_in_store(key, post_data['value'])
 
-            elif ''.join(post_data['action']) == "delete":
+            elif ''.join(post_data['action']) == del_vessels:
                 # delete value
-                self.server.delete_value_in_store(key_up)
+                self.server.delete_value_in_store(key)
 
-            elif ''.join(post_data['action']) == "leader_election"
-
+            elif ''.join(post_data['action']) == leader_elec:
                 #random number of my neighbour
                 num_rec = int( ''.join( post_data['value']) )
-                id_rec = int( ''.join( post_data['key'])
+                id_rec = key
 
                 if id_rec != self.vessel_id:
+                    action = leader_elec
                     self.list_num_rand[id_rec] = num_rec
                     self.server.propagate_value_to_neighbor( None, action, id_rec, num_rec)
                 else:
@@ -308,38 +434,18 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
 
 
 
-        if retransmit:
-            retransmit = False
-            # do_POST send the message only when the function finishes
-            # We must then create threads if we want to do some heavy computation
-            #
-            # Random content
-            thread = Thread(target=self.server.propagate_value_to_vessels,
-                            args=(self.path, action, key, ''.join(post_data['entry'])))
-            # We kill the process if we kill the server
-            thread.daemon = True
-            # We start the thread
-            thread.start()
-
-# ------------------------------------------------------------------------------------------------------
-
 
 # ------------------------------------------------------------------------------------------------------
 #
 # ------------------------------------------------------------------------------------------------------
 
-def leader_election(my_id, number_vessels):
+def leader_election(my_id):
     #wait for the initialization of all vessels
     sleep(1)
 
     num_rand = randint(0, PORT_NUMBER)
-
-    action = 'leader_election'
-    self.server.propagate_value_to_neighbor( None, action, my_id, num_rand)
-
-
-
-
+    action = leader_elec
+    propagate_value_to_neighbor(None, None, action, my_id, num_rand)
 
 
 # ------------------------------------------------------------------------------------------------------
@@ -362,9 +468,8 @@ if __name__ == '__main__':
         for i in range(1, int(sys.argv[2]) + 1):
             vessel_list.append("10.1.0.%d" % i)  # We can add ourselves, we have a test in the propagation
 
-    number_vessels = int(sys.argv[2])
-    leader_election(vessel_id, number_vessels)
 
+    leader_election(vessel_id)
 
     # We launch a server
     server = BlackboardServer(('', PORT_NUMBER), BlackboardRequestHandler, vessel_id, vessel_list)
