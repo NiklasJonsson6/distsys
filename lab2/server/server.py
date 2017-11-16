@@ -3,8 +3,8 @@
 # TDA596 Labs - Server Skeleton
 # server/server.py
 # Input: Node_ID total_number_of_ID
-# Student Group:29	
-# Student names: 
+# Student Group:29
+# Student names:
 # ------------------------------------------------------------------------------------------------------
 # We import various libraries
 from BaseHTTPServer import HTTPServer, BaseHTTPRequestHandler  # Socket specifically designed to handle HTTP requests
@@ -14,6 +14,7 @@ from httplib import HTTPConnection  # Create a HTTP connection, as a client (for
 from urllib import urlencode  # Encode POST content into the HTTP header
 from codecs import open  # Open a file
 from threading import Thread  # Thread Management
+from random import randint	#random number
 
 # ------------------------------------------------------------------------------------------------------
 
@@ -50,7 +51,7 @@ class BlackboardServer(HTTPServer):
         # The list of other vessels
         self.vessels = vessel_list
 
-    # ------------------------------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------------------------------
     # We add a value received to the store
     def add_value_to_store(self, value):
         # We add the value to the store
@@ -60,7 +61,7 @@ class BlackboardServer(HTTPServer):
         value = ''.join(value)
         self.store[self.current_key] = value
 
-    # ------------------------------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------------------------------
     # We modify a value received in the store
     def modify_value_in_store(self, key, value):
         # we modify a value in the store if it exists
@@ -70,8 +71,7 @@ class BlackboardServer(HTTPServer):
 
 
 
-        # ------------------------------------------------------------------------------------------------------
-
+# ------------------------------------------------------------------------------------------------------
     # We delete a value received from the store
     def delete_value_in_store(self, key):
         # we delete a value in the store if it exists
@@ -79,9 +79,8 @@ class BlackboardServer(HTTPServer):
             del self.store[key]
 
 
-        # ------------------------------------------------------------------------------------------------------
-        # Contact a specific vessel with a set of variables to transmit to it
-
+# ------------------------------------------------------------------------------------------------------
+    # Contact a specific vessel with a set of variables to transmit to it
     def contact_vessel(self, vessel_ip, path, action, key, value):
         # the Boolean variable we will return
         success = False
@@ -114,7 +113,8 @@ class BlackboardServer(HTTPServer):
         # we return if we succeeded or not
         return success
 
-    # ------------------------------------------------------------------------------------------------------
+
+# ------------------------------------------------------------------------------------------------------
     # We send a received value to all the other vessels of the system
     def propagate_value_to_vessels(self, path, action, key, value):
         # We iterate through the vessel list
@@ -127,8 +127,23 @@ class BlackboardServer(HTTPServer):
 
 
 # ------------------------------------------------------------------------------------------------------
+    # We send a received value to all the other vessels of the system
+    def propagate_value_to_neighbor(self, path, action, key, value):
+        # We only send it to the neighbour
+
+        if len(self.vessels) == (self.vessel_id - 1):
+        #node with the highest id - his neighbour is the node id = 0
+            neighbour_id = 0
+        elif:
+        #all the other nodes
+            neighbour_id = self.vessel_id + 1
+
+        vessel = "10.1.0.%s" % neighbour_id
+        # A good practice would be to try again if the request failed
+        self.contact_vessel(vessel, path, action, key, value)
 
 
+# ------------------------------------------------------------------------------------------------------
 
 
 
@@ -139,7 +154,7 @@ class BlackboardServer(HTTPServer):
 # i.e. the store is accessible through self.server.store
 # Attributes of the server are SHARED accross all request hqndling/ threads!
 class BlackboardRequestHandler(BaseHTTPRequestHandler):
-    # ------------------------------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------------------------------
     # We fill the HTTP headers
     def set_HTTP_headers(self, status_code=200):
         # We set the response status code (200 if OK, something else otherwise)
@@ -149,7 +164,7 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
         # No more important headers, we can close them
         self.end_headers()
 
-    # ------------------------------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------------------------------
     # a POST request must be parsed through urlparse.parse_QS, since the content is URL encoded
     def parse_POST_request(self):
         post_data = ""
@@ -160,12 +175,12 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
         # we return the data
         return post_data
 
-    # ------------------------------------------------------------------------------------------------------
-    # ------------------------------------------------------------------------------------------------------
-    # Request handling - GET
-    # ------------------------------------------------------------------------------------------------------
-    # This function contains the logic executed when this server receives a GET request
-    # This function is called AUTOMATICALLY upon reception and is executed as a thread!
+# ------------------------------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------------------------------
+# Request handling - GET
+# ------------------------------------------------------------------------------------------------------
+# This function contains the logic executed when this server receives a GET request
+# This function is called AUTOMATICALLY upon reception and is executed as a thread!
     def do_GET(self):
         print("Receiving a GET on path %s" % self.path)
         # if path is /board, only the boardcontents template should be updated, else the whole page
@@ -173,9 +188,9 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
             self.update_board()
         else:
             self.do_GET_Index()
-        # ------------------------------------------------------------------------------------------------------
-        # GET logic - specific path
-        # ------------------------------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------------------------------
+# GET logic - specific path
+# ------------------------------------------------------------------------------------------------------
 
     def update_board(self):
         self.set_HTTP_headers(200)
@@ -190,6 +205,8 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
         newboard += '</div>'
         self.wfile.write(newboard)
 
+
+# ------------------------------------------------------------------------------------------------------
     def do_GET_Index(self):
         # We set the response status code to 200 (OK)
         self.set_HTTP_headers(200)
@@ -209,13 +226,13 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
 
         self.wfile.write(html_reponse)
 
-    # ------------------------------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------------------------------
 
 
 
-    # ------------------------------------------------------------------------------------------------------
-    # Request handling - POST
-    # ------------------------------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------------------------------
+# Request handling - POST
+# ------------------------------------------------------------------------------------------------------
     def do_POST(self):
         print("Receiving a POST on %s" % self.path)
         # Here, we should check which path was requested and call the right logic based on it
@@ -271,6 +288,17 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
                 # delete value
                 self.server.delete_value_in_store(key_up)
 
+            elif ''.join(post_data['action']) == "leader_election"
+
+                #random number of my neighbour
+                num_neighbor = int( ''.join( post_data['value']) )
+                if num_neighbor > num_rand:
+                                leader_id = int( ''.join( post_data['key'])
+                                num_rand =
+
+
+
+
         if retransmit:
             retransmit = False
             # do_POST send the message only when the function finishes
@@ -284,8 +312,24 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
             # We start the thread
             thread.start()
 
+# ------------------------------------------------------------------------------------------------------
+
 
 # ------------------------------------------------------------------------------------------------------
+#
+# ------------------------------------------------------------------------------------------------------
+
+def leader_election(my_id, number_vessels):
+    #wait for the initialization of all vessels
+    sleep(1)
+
+    #generate a random integer number
+    num_rand = randint(0, PORT_NUMBER)
+    action = 'leader_election'
+    self.server.propagate_value_to_neighbor( None, action, my_id, num_rand)
+
+
+
 
 
 
@@ -307,6 +351,10 @@ if __name__ == '__main__':
         # We need to write the other vessels IP, based on the knowledge of their number
         for i in range(1, int(sys.argv[2]) + 1):
             vessel_list.append("10.1.0.%d" % i)  # We can add ourselves, we have a test in the propagation
+
+    number_vessels = int(sys.argv[2])
+    leader_election(vessel_id, number_vessels)
+
 
     # We launch a server
     server = BlackboardServer(('', PORT_NUMBER), BlackboardRequestHandler, vessel_id, vessel_list)
