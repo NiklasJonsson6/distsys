@@ -50,6 +50,11 @@ class BlackboardServer(HTTPServer):
         self.vessel_id = vessel_id
         # The list of other vessels
         self.vessels = vessel_list
+        #Leader id
+        self.leader_id = 0
+        #list with the random number_vessels
+        self.list_num_rand = {}
+
 
 # ------------------------------------------------------------------------------------------------------
     # We add a value received to the store
@@ -128,7 +133,7 @@ class BlackboardServer(HTTPServer):
 
 # ------------------------------------------------------------------------------------------------------
     # We send a received value to all the other vessels of the system
-    def propagate_value_to_neighbor(self, path, action, key, value):
+    def propagate_value_to_neighbor(self, path, action, key, list_num):
         # We only send it to the neighbour
 
         if len(self.vessels) == (self.vessel_id - 1):
@@ -140,7 +145,7 @@ class BlackboardServer(HTTPServer):
 
         vessel = "10.1.0.%s" % neighbour_id
         # A good practice would be to try again if the request failed
-        self.contact_vessel(vessel, path, action, key, value)
+        self.contact_vessel(vessel, path, action, key, list_num)
 
 
 # ------------------------------------------------------------------------------------------------------
@@ -291,11 +296,15 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
             elif ''.join(post_data['action']) == "leader_election"
 
                 #random number of my neighbour
-                num_neighbor = int( ''.join( post_data['value']) )
-                if num_neighbor > num_rand:
-                                leader_id = int( ''.join( post_data['key'])
-                                num_rand =
+                num_rec = int( ''.join( post_data['value']) )
+                id_rec = int( ''.join( post_data['key'])
 
+                if id_rec != self.vessel_id:
+                    self.list_num_rand[id_rec] = num_rec
+                    self.server.propagate_value_to_neighbor( None, action, id_rec, num_rec)
+                else:
+                    self.list_num_rand[id_rec] = num_rec
+                    self.leader_id = max(self.list_num_rand, key = self.list_num_rand.get)
 
 
 
@@ -323,8 +332,8 @@ def leader_election(my_id, number_vessels):
     #wait for the initialization of all vessels
     sleep(1)
 
-    #generate a random integer number
     num_rand = randint(0, PORT_NUMBER)
+
     action = 'leader_election'
     self.server.propagate_value_to_neighbor( None, action, my_id, num_rand)
 
@@ -342,6 +351,7 @@ if __name__ == '__main__':
     # .....
     vessel_list = []
     vessel_id = 0
+
     # Checking the arguments
     if len(sys.argv) != 3:  # 2 args, the script and the vessel name
         print("Arguments: vessel_ID number_of_vessels")
