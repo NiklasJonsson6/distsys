@@ -258,7 +258,14 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
         self.set_HTTP_headers(200)
         # We should do some real HTML here
 
-        html_reponse = board_frontpage_header_template + boardcontents_template + board_frontpage_footer_template
+        #write the leader id and his random number in the html file
+        leader_board = board_frontpage_header_template
+        aux = leader_board[-330:]
+        leader_board = leader_board[:-330]
+        leader_board += '</p>Leader id = %d; Random Number = %d</p>' %(self.server.leader_id, self.server.list_num_rand[self.server.leader_id] )
+        leader_board += aux
+
+        html_reponse = leader_board + boardcontents_template + board_frontpage_footer_template
         new_entry = ""
 
         for i in self.server.store.keys(): #for each item in store, create entries
@@ -268,7 +275,7 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
         boardcontents_template2 += '<p>'
         boardcontents_template2 += new_entry
         boardcontents_template2 += '</div>'
-        html_reponse = board_frontpage_header_template + boardcontents_template2 + board_frontpage_footer_template
+        html_reponse = leader_board + boardcontents_template2 + board_frontpage_footer_template
 
         self.wfile.write(html_reponse)
 
@@ -368,6 +375,7 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
         post_data = self.parse_POST_request()
         self.set_HTTP_headers(200)
 
+
         if self.path == "/board":
             if 'action' in post_data:
             # received new entry from the leader to post
@@ -417,18 +425,19 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
                 num_rec = int( ''.join( post_data['value']) )
                 id_rec = key
 
-                if id_rec != self.server.vessel_id:
+                if id_rec not in self.server.list_num_rand.keys():
                     action = leader_elec
                     self.server.list_num_rand[id_rec] = num_rec
-                    t_send = Thread(target=self.server.propagate_value_to_neighbor, args=( None, action, id_rec, num_rec))
-                    t_send.daemon = True
-                    t_send.start()
-                else:
-                    self.server.list_num_rand[id_rec] = num_rec
+                    if self.server.vessel_id != id_rec:
+                        t_send = Thread(target=self.server.propagate_value_to_neighbor, args=( None, action, id_rec, num_rec))
+                        t_send.daemon = True
+                        t_send.start()
 
                 if len(self.server.list_num_rand) == len(self.server.vessels):
                     self.server.leader_id = max(self.server.list_num_rand, key = self.server.list_num_rand.get)
                     print "%d" %self.server.leader_id
+
+
 
 
         if retransmit_to_leader:
