@@ -13,7 +13,7 @@ from urlparse import parse_qs  # Parse POST data
 from httplib import HTTPConnection  # Create a HTTP connection, as a client (for POST requests to the other vessels)
 from urllib import urlencode  # Encode POST content into the HTTP header
 from codecs import open  # Open a file
-from threading import Thread  # Thread Management
+from threading import Thread # Thread Management
 from random import randint	#random number
 from time import sleep
 
@@ -60,6 +60,15 @@ del_vessels = "delete_on_vessels"                           #   eader -> normal_
                                                             #                               #
 #leader election algorithm                                  #                               #
 leader_elec = "leader_election"                             #   vessel -> vessel            #
+                                                            #                               #
+#a node sends a message to the neighbour to warn that       #                               #
+#some node died during the leader election                  #                               #
+dead_neighbour = "dead_neighbour_in_election"               #   vessel -> vessel            #
+                                                            #                               #
+#when a vessel detects that the leader might be dead        #                               #
+#choose a new leader                                        #                               #
+new_leader = "leader_dead_new_election"                     #   vessel -> new_leader        #
+                                                            #                               #
 # ------------------------------------------------------------------------------------------------------
 
 
@@ -82,6 +91,12 @@ class BlackboardServer(HTTPServer):
         self.leader_id = -1
         #list with the random number_vessels
         self.list_num_rand = {}
+        #neighbour id
+        self.neighbour_id = -1
+        self.max_id = 0
+        #list with the nodes dead and the node that are reachable
+        self.list_deads = []
+        self.list_node = vessel_list
 
 # ------------------------------------------------------------------------------------------------------
     # We add a value received to the store
@@ -156,7 +171,7 @@ class BlackboardServer(HTTPServer):
     # We send a received value from leader to all the other vessels of the system
     def propagate_value_to_vessels(self, path, action, key, value):
 
-        if self.leader_id == self.vessel_id:
+        if self.leader_id == self.vessel_id or action == new_leader:
         #if I am the leader
             # We iterate through the vessel list
             for vessel in self.vessels:
@@ -164,7 +179,7 @@ class BlackboardServer(HTTPServer):
                 if vessel != ("10.1.0.%s" % self.vessel_id):
                     # A good practice would be to try again if the request failed
                     # Here, we do it only once
-                    self.contact_vessel(vessel, path, action, key, value)
+                    check_connec = self.contact_vessel(vessel, path, action, key, value)
 
 # ------------------------------------------------------------------------------------------------------
     # We send a received value from a normal vessel to the leader
@@ -172,23 +187,59 @@ class BlackboardServer(HTTPServer):
 
         if self.leader_id != self.vessel_id:
             vessel = "10.1.0.%s" % self.leader_id
-            self.contact_vessel(vessel, path, action, key, value)
+            check_connec = self.contact_vessel(vessel, path, action, key, value)
+            if check_connec == False:
+                #leader is dead
+                self.vessels.remove(vessel)
+                if self.leader_id in self.list_num_rand.keys():
+                    del self.list_num_rand[self.leader_id]
+
+                #new leader
+                self.leader_id = max(self.list_num_rand, key = self.list_num_rand.get)
+                action = new_leader
+                self.propagate_value_to_vessels(None, action, self.leader_id, self.list_num_rand[self.leader_id])
+                print "New Leader was elected (id = %d)" %self.leader_id
 
 # ------------------------------------------------------------------------------------------------------
     # We send a received value to all the neighbour's vessels
     # the graph with all vessels is a ring
     def propagate_value_to_neighbor(self, path, action, key, value):
         # We only send it to the neighbour
+        vessel ="10.1.0.%d" % (self.neighbour_id)
 
-        if len(self.vessels) == (self.vessel_id):
-        #node with the highest id - his neighbour is the node id = 0
-            neighbour_id = 1
-        else:
-        #all the other nodes
-            neighbour_id = self.vessel_id + 1
+        #propagate the id and de random number to the neighbour
+        check_connec = self.contact_vessel(vessel, path, action, key, value)
+        if check_connec == False:
+            if vessel in self.list_node:
+                id_dead = self.neighbour_id
+                self.list_node.remove(vessel)
+                self.list_deads.append(vessel)
+                vessel_new ="10.1.0.%d" % self.neighbour_id
 
-        vessel = "10.1.0.%d" % neighbour_id
-        self.contact_vessel(vessel, path, action, key, value)
+                #if the neighbour is dead, discover the new neighbour id
+                while vessel_new not in self.list_node:
+                    if self.max_id == self.neighbour_id:
+                        self.max_id = self.vessel_id
+                        self.neighbour_id = 1
+                    else:
+                        self.neighbour_id += 1
+
+                    #address of the destination vessel
+                    vessel_new ="10.1.0.%d" % self.neighbour_id
+
+                #warns the new neighbour that
+                action1 = dead_neighbour
+                self.contact_vessel(vessel_new, path, action1, id_dead, self.max_id)
+                action2 = leader_elec
+
+                for i in self.list_num_rand.keys():
+                    if i in self.list_num_rand.keys():
+                        self.contact_vessel(vessel_new, path, action2, i, self.list_num_rand[i])
+
+
+                #send the information about the ids and the random numbers to the new neighbour
+                self.propagate_value_to_neighbor(path, action, key, value)
+
 
 # ------------------------------------------------------------------------------------------------------
 
@@ -420,6 +471,22 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
                 # delete value
                 self.server.delete_value_in_store(key)
 
+            elif ''.join(post_data['action']) == dead_neighbour:
+                #some is reporting that one vessel died during the leader election
+                id_dead = key
+                self.max_id = int(''.join(post_data['value']) )
+
+                vessel_dead = "10.1.0.%d" % (id_dead)
+                if vessel_dead in self.server.list_node:
+                    self.server.list_node.remove(vessel_dead)
+                    self.server.list_deads.append(vessel_dead)
+
+                    action = dead_neighbour
+                    t_send_dead = Thread(target=self.server.propagate_value_to_neighbor, args=( None, action, id_dead, self.max_id))
+                    t_send_dead.daemon = True
+                    t_send_dead.start()
+
+
             elif ''.join(post_data['action']) == leader_elec:
                 #random number of my neighbour
                 num_rec = int( ''.join( post_data['value']) )
@@ -433,10 +500,24 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
                         t_send.daemon = True
                         t_send.start()
 
-                if len(self.server.list_num_rand) == len(self.server.vessels):
-                    self.server.leader_id = max(self.server.list_num_rand, key = self.server.list_num_rand.get)
-                    print "%d" %self.server.leader_id
+                num_nodes_begin = len(self.server.list_node) + len(self.server.list_deads)
+                if  num_nodes_begin == len(self.server.list_num_rand):
+                    if self.server.leader_id == -1:
+                        self.server.leader_id = 0
+                        thread = Thread(target=self.select_leader)
+                        thread.daemon = True
+                        thread.start()
 
+
+            elif ''.join(post_data['action']) == new_leader:
+                #leader is dead
+                vessel = "10.1.0.%s" % self.server.leader_id
+                self.server.vessels.remove(vessel)
+                if self.server.leader_id in self.server.list_num_rand.keys():
+                    del self.server.list_num_rand[self.server.leader_id]
+
+                self.server.leader_id = key
+                print "New Leader was elected (id = %d)" %self.server.leader_id
 
 
 
@@ -447,6 +528,22 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
             thread.daemon = True
             thread.start()
 
+# ------------------------------------------------------------------------------------------------------
+    def select_leader(self):
+        #wainting to finish to receive all the communications
+        sleep(15)
+
+        for addr_dead in self.server.list_deads:
+            if addr_dead[-2] == '.' :
+                id_dead = int(addr_dead[-1])
+            else:
+                id_dead = int(addr_dead[-2:])
+
+            if id_dead in self.server.list_num_rand.keys():
+                del self.server.list_num_rand[id_dead]
+
+        self.server.leader_id = max(self.server.list_num_rand, key = self.server.list_num_rand.get)
+        print "Leader was elected (id = %d)" %self.server.leader_id
 
 
 
@@ -460,6 +557,15 @@ def leader_election(server, my_id):
     action = leader_elec
     #wait for the initialization of all vessels
     sleep(1)
+
+    if len(server.vessels) == (server.vessel_id):
+    #node with the highest id - his neighbour is the node id = 1
+        server.neighbour_id = 1
+    else:
+    #all the other nodes
+        server.neighbour_id = server.vessel_id + 1
+
+    server.list_num_rand[vessel_id] = num_rand
 
     t_send = Thread(target=server.propagate_value_to_neighbor, args=( None, action, my_id, num_rand))
     t_send.daemon = True
@@ -491,6 +597,7 @@ if __name__ == '__main__':
     server = BlackboardServer(('', PORT_NUMBER), BlackboardRequestHandler, vessel_id, vessel_list)
     print("Starting the server on port %d" % PORT_NUMBER)
 
+    server.max_id = int(sys.argv[2])
     leader_election(server, vessel_id)
 
     try:
