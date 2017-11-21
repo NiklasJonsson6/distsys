@@ -311,10 +311,11 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
 
         #write the leader id and his random number in the html file
         leader_board = board_frontpage_header_template
-        aux = leader_board[-330:]
-        leader_board = leader_board[:-330]
-        leader_board += '</p>Leader id = %d; Random Number = %d</p>' %(self.server.leader_id, self.server.list_num_rand[self.server.leader_id] )
-        leader_board += aux
+        if self.server.leader_id in  self.server.list_num_rand.keys():
+            aux = leader_board[-330:]
+            leader_board = leader_board[:-330]
+            leader_board += '</p>Leader id = %d; Random Number = %d</p>' %(self.server.leader_id, self.server.list_num_rand[self.server.leader_id] )
+            leader_board += aux
 
         html_reponse = leader_board + boardcontents_template + board_frontpage_footer_template
         new_entry = ""
