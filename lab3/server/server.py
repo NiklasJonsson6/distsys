@@ -3,8 +3,8 @@
 # TDA596 Labs - Server Skeleton
 # server/server.py
 # Input: Node_ID total_number_of_ID
-# Student Group:29	
-# Student names: 
+# Student Group:29
+# Student names:
 # ------------------------------------------------------------------------------------------------------
 # We import various libraries
 from BaseHTTPServer import HTTPServer, BaseHTTPRequestHandler  # Socket specifically designed to handle HTTP requests
@@ -34,6 +34,14 @@ PORT_NUMBER = 8080
 # ------------------------------------------------------------------------------------------------------
 
 
+class Message:
+    def __init__(self, uniqueid, message):
+        self.uniqueid = uniqueid
+        self.message = message
+
+
+
+
 # ------------------------------------------------------------------------------------------------------
 # ------------------------------------------------------------------------------------------------------
 class BlackboardServer(HTTPServer):
@@ -50,43 +58,50 @@ class BlackboardServer(HTTPServer):
         # The list of other vessels
         self.vessels = vessel_list
 
+
     # ------------------------------------------------------------------------------------------------------
     # We add a value received to the store
-    def add_value_to_store(self, value):
+    def add_value_to_store(self, m):
         # We add the value to the store
         # next id
         self.current_key = self.current_key + 1
+        unique_id = self.current_key
+        ip = self.vessel_id
+
         # store in the dict
-        value = ''.join(value)
-        self.store[self.current_key] = value
+        message = ''.join(m)
+        uni_id = int('%d%d' %(ip, unique_id))
+        newmessage = Message(uni_id, message)
 
-    # ------------------------------------------------------------------------------------------------------
+        self.store[self.current_key] = newmessage
+
+# ------------------------------------------------------------------------------------------------------
     # We modify a value received in the store
-    def modify_value_in_store(self, key, value):
+    def modify_value_in_store(self, uni_id, value):
         # we modify a value in the store if it exists
-        if key in self.store.keys():
-            value = ''.join(value)
-            self.store[key] = value
+        for key in self.store.keys():
+            if self.store[key].uniqueid == uni_id:
+                self.store[key].message = ''.join(value)
+                break
 
 
-
-        # ------------------------------------------------------------------------------------------------------
-
+# ------------------------------------------------------------------------------------------------------
     # We delete a value received from the store
-    def delete_value_in_store(self, key):
+    def delete_value_in_store(self, uni_id):
         # we delete a value in the store if it exists
-        if key in self.store.keys():
-            del self.store[key]
+        for key in self.store.keys():
+            if self.store[key].uniqueid == uni_id:
+                del self.store[key]
 
 
-        # ------------------------------------------------------------------------------------------------------
-        # Contact a specific vessel with a set of variables to transmit to it
+# ------------------------------------------------------------------------------------------------------
+    # Contact a specific vessel with a set of variables to transmit to it
 
-    def contact_vessel(self, vessel_ip, path, action, key, value):
+    def contact_vessel(self, vessel_ip, path, action, key, value, uni_id):
         # the Boolean variable we will return
         success = False
         # The variables must be encoded in the URL format, through urllib.urlencode
-        post_content = urlencode({'action': action, 'key': key, 'value': value})
+        post_content = urlencode({'action': action, 'key': key, 'value': value, 'uni_id': uni_id})
         # the HTTP header must contain the type of data we are transmitting, here URL encoded
         headers = {"Content-type": "application/x-www-form-urlencoded"}
         # We should try to catch errors when contacting the vessel
@@ -114,16 +129,16 @@ class BlackboardServer(HTTPServer):
         # we return if we succeeded or not
         return success
 
-    # ------------------------------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------------------------------
     # We send a received value to all the other vessels of the system
-    def propagate_value_to_vessels(self, path, action, key, value):
+    def propagate_value_to_vessels(self, path, action, key, value, uni_id):
         # We iterate through the vessel list
         for vessel in self.vessels:
             # We should not send it to our own IP, or we would create an infinite loop of updates
             if vessel != ("10.1.0.%s" % self.vessel_id):
                 # A good practice would be to try again if the request failed
                 # Here, we do it only once
-                self.contact_vessel(vessel, path, action, key, value)
+                self.contact_vessel(vessel, path, action, key, value, uni_id)
 
 
 # ------------------------------------------------------------------------------------------------------
@@ -181,7 +196,7 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
         self.set_HTTP_headers(200)
         new_entry = ""
         for i in self.server.store.keys(): #for every item in store
-            entry = entry_template % ("entries/" + str(i), i, self.server.store[i]) #create entries
+            entry = entry_template % ("entries/" + str(i), i, self.server.store[i].message) #create entries
             new_entry += entry
         newboard = boardcontents_template #put the new entries into the boardcontents
         newboard = newboard[:-5]
@@ -199,7 +214,7 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
         new_entry = ""
 
         for i in self.server.store.keys(): #for each item in store, create entries
-            entry = entry_template % ("entries/" + str(i), i, self.server.store[i])
+            entry = entry_template % ("entries/" + str(i), i, self.server.store[i].message)
             new_entry += entry
         boardcontents_template2 = boardcontents_template[:-5] #put the new entries into the boardcontents
         boardcontents_template2 += '<p>'
@@ -233,11 +248,16 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
                 # update information from other vessels
                 if ''.join(post_data['action']) == "submit":
                     # new value
+                    if
                     self.server.add_value_to_store(''.join(post_data['value']))
+
+
+
             else:
                 # submit information write by the own vessel
                 self.server.add_value_to_store(post_data['entry'])
                 key = self.server.current_key
+                uni_id = self.server.store[key].uniqueid
                 action = "submit"
                 retransmit = True
 
@@ -246,16 +266,17 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
             # modify or delete
             id_mod_del = int(''.join(post_data['delete']))
             key = int(self.path[9:])
+            uni_id = self.server.store[key].uniqueid
 
             if id_mod_del == 0:
                 # modify
-                self.server.modify_value_in_store(key, post_data['entry'])
+                self.server.modify_value_in_store(uni_id, post_data['entry'])
                 action = "modify"
                 retransmit = True
 
             elif id_mod_del == 1:
                 # delete
-                self.server.delete_value_in_store(key)
+                self.server.delete_value_in_store(uni_id)
                 action = "delete"
                 retransmit = True
 
@@ -277,8 +298,7 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
             # We must then create threads if we want to do some heavy computation
             #
             # Random content
-            thread = Thread(target=self.server.propagate_value_to_vessels,
-                            args=(self.path, action, key, ''.join(post_data['entry'])))
+            thread = Thread(target=self.server.propagate_value_to_vessels, args=(self.path, action, key, ''.join(post_data['entry']), uni_id ))
             # We kill the process if we kill the server
             thread.daemon = True
             # We start the thread
