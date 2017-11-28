@@ -4,9 +4,10 @@
 # server/server.py
 # Input: Node_ID total_number_of_ID
 # Student Group:29
-# Student names:
+# Student names:Pedro Mendes and Niklas Jonsson
 # ------------------------------------------------------------------------------------------------------
-# We import various libraries
+#       Import various libraries
+# -----------------------------------------------------------------------------------------------------
 from BaseHTTPServer import HTTPServer, BaseHTTPRequestHandler  # Socket specifically designed to handle HTTP requests
 import sys  # Retrieve arguments
 from urlparse import parse_qs  # Parse POST data
@@ -14,10 +15,32 @@ from httplib import HTTPConnection  # Create a HTTP connection, as a client (for
 from urllib import urlencode  # Encode POST content into the HTTP header
 from codecs import open  # Open a file
 from threading import Thread  # Thread Management
-
 # ------------------------------------------------------------------------------------------------------
 
-# Global variables for HTML templates
+
+# ----------------------------------------------------------------------------------------------------
+#       Protocols of communications - actions
+# ----------------------------------------------------------------------------------------------------
+                                                            #
+#submit (add) a new post on a blackboard                    #
+add_post = "submit_new_post"                                #
+                                                            #
+#modify one post on a blackboard                            #
+modi_post = "modify_post"                                   #
+                                                            #
+#delete one post on a blackboard                            #
+del_post = "delete_post"                                    #
+                                                            #
+#update a information id on a blackboard                    #
+update_id = "update_new_id"                                 #
+                                                            #
+# ------------------------------------------------------------------------------------------------------
+
+
+
+# ------------------------------------------------------------------------------------------------------
+#       Global variables for HTML templates
+# ------------------------------------------------------------------------------------------------------
 try:
     board_frontpage_footer_template = open('server/board_frontpage_footer_template.html', 'r').read()
     board_frontpage_header_template = open('server/board_frontpage_header_template.html', 'r').read()
@@ -25,27 +48,40 @@ try:
     entry_template = open('server/entry_template.html', 'r').read()
 except Exception as e:
     print(e)
+# ------------------------------------------------------------------------------------------------------
+
+
 
 # ------------------------------------------------------------------------------------------------------
-# Static variables definitions
+#       Static variables definitions
+# ------------------------------------------------------------------------------------------------------
 PORT_NUMBER = 8080
 
-
 # ------------------------------------------------------------------------------------------------------
 
 
+
+# ------------------------------------------------------------------------------------------------------
+#       Class of a message
+# ------------------------------------------------------------------------------------------------------
 class Message:
     def __init__(self, uniqueid, message):
+        #unique id - doesn't change during all the execution
         self.uniqueid = uniqueid
+        #data post
         self.message = message
 
+        #store action in the waiting actions list
+        self.action = None
+# ------------------------------------------------------------------------------------------------------
 
 
 
 # ------------------------------------------------------------------------------------------------------
+#       Class blackboard server
 # ------------------------------------------------------------------------------------------------------
 class BlackboardServer(HTTPServer):
-    # ------------------------------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------------------------------
     def __init__(self, server_address, handler, node_id, vessel_list):
         # We call the super init
         HTTPServer.__init__(self, server_address, handler)
@@ -57,9 +93,10 @@ class BlackboardServer(HTTPServer):
         self.vessel_id = vessel_id
         # The list of other vessels
         self.vessels = vessel_list
+        #list of action in a waiting list
+        self.wait_list = []
 
-
-    # ------------------------------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------------------------------
     # We add a value received to the store
     def add_value_to_store(self, m):
         # We add the value to the store
@@ -70,28 +107,80 @@ class BlackboardServer(HTTPServer):
 
         # store in the dict
         message = ''.join(m)
-        uni_id = int('%d%d' %(ip, unique_id))
+
+        #uni_id: varible that stores an unique id that doesn't change during all the program
+        #this is form by two numbers: the host id of Ip address(last number) and seq.number (current_key)
+        #the two first  numbers are the IP and the other numbers form the seq.munber
+        #uni_id = [ 0, 1, | 2,.....] = [ IP | seq.number ]
+        #by our choice of simplification, we assume that the maximum number of nodes are 100, which for the simulation
+        #using the mininet is perfect resonable, but if we for some way needed more node we could easly change this part
+        #of the code to be possible store more node
+        if ip < 10:
+            uni_id = int('0%d%d' %(ip, unique_id))
+        else
+            uni_id = int('%d%d' %(ip, unique_id))
+
         newmessage = Message(uni_id, message)
 
         self.store[self.current_key] = newmessage
+
+
+# ------------------------------------------------------------------------------------------------------
+    # We add a value received from another vessel to the store
+    def add_value_to_store(self, m, unique_id):
+
+        # next id
+        self.current_key = self.current_key + 1
+
+        # store in the dict
+        message = ''.join(m)
+        newmessage = Message(unique_id, message)
+
+        self.store[self.current_key] = newmessage
+
 
 # ------------------------------------------------------------------------------------------------------
     # We modify a value received in the store
     def modify_value_in_store(self, uni_id, value):
         # we modify a value in the store if it exists
+        wait_action = False
+
+        mes= ''.join(value)
+
         for key in self.store.keys():
             if self.store[key].uniqueid == uni_id:
-                self.store[key].message = ''.join(value)
+                self.store[key].message = mes
+                wait_action = True
                 break
+
+        if wait_action == False:
+        #the information on vessel is not fully update - we have to wait
+        #add this action in a list
+            wait_node = Message(uni_id, mes)
+            wait_node.action = modi_post
+
+            self.wait_list.append(wait_node)
+
 
 
 # ------------------------------------------------------------------------------------------------------
     # We delete a value received from the store
     def delete_value_in_store(self, uni_id):
         # we delete a value in the store if it exists
+        wait_action = False
+
         for key in self.store.keys():
             if self.store[key].uniqueid == uni_id:
+                wait_action = True
                 del self.store[key]
+                break
+
+
+        if wait_action == False:
+            wait_node = Message(uni_id, mes)
+            wait_node.action = del_post
+
+            self.wait_list.append(wait_node)
 
 
 # ------------------------------------------------------------------------------------------------------
@@ -145,16 +234,15 @@ class BlackboardServer(HTTPServer):
 
 
 
-
-
 # ------------------------------------------------------------------------------------------------------
+#       BlackboardRequestHandler
 # ------------------------------------------------------------------------------------------------------
 # This class implements the logic when a server receives a GET or POST request
 # It can access to the server data through self.server.*
 # i.e. the store is accessible through self.server.store
 # Attributes of the server are SHARED accross all request hqndling/ threads!
 class BlackboardRequestHandler(BaseHTTPRequestHandler):
-    # ------------------------------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------------------------------
     # We fill the HTTP headers
     def set_HTTP_headers(self, status_code=200):
         # We set the response status code (200 if OK, something else otherwise)
@@ -164,7 +252,7 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
         # No more important headers, we can close them
         self.end_headers()
 
-    # ------------------------------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------------------------------
     # a POST request must be parsed through urlparse.parse_QS, since the content is URL encoded
     def parse_POST_request(self):
         post_data = ""
@@ -174,11 +262,11 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
         post_data = parse_qs(self.rfile.read(length), keep_blank_values=1)
         # we return the data
         return post_data
+# ------------------------------------------------------------------------------------------------------
 
-    # ------------------------------------------------------------------------------------------------------
-    # ------------------------------------------------------------------------------------------------------
-    # Request handling - GET
-    # ------------------------------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------------------------------
+# Request handling - GET
+# ------------------------------------------------------------------------------------------------------
     # This function contains the logic executed when this server receives a GET request
     # This function is called AUTOMATICALLY upon reception and is executed as a thread!
     def do_GET(self):
@@ -188,9 +276,11 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
             self.update_board()
         else:
             self.do_GET_Index()
-        # ------------------------------------------------------------------------------------------------------
-        # GET logic - specific path
-        # ------------------------------------------------------------------------------------------------------
+
+
+# ------------------------------------------------------------------------------------------------------
+# GET logic and update_board - specific path
+# ------------------------------------------------------------------------------------------------------
 
     def update_board(self):
         self.set_HTTP_headers(200)
@@ -204,6 +294,7 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
         newboard += new_entry
         newboard += '</div>'
         self.wfile.write(newboard)
+# ------------------------------------------------------------------------------------------------------
 
     def do_GET_Index(self):
         # We set the response status code to 200 (OK)
@@ -224,13 +315,13 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
 
         self.wfile.write(html_reponse)
 
-    # ------------------------------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------------------------------
 
 
 
-    # ------------------------------------------------------------------------------------------------------
-    # Request handling - POST
-    # ------------------------------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------------------------------
+# Request handling - POST
+# ------------------------------------------------------------------------------------------------------
     def do_POST(self):
         print("Receiving a POST on %s" % self.path)
         # Here, we should check which path was requested and call the right logic based on it
@@ -243,27 +334,34 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
         retransmit = False
 
         if self.path == "/board":
-            # submit
+            # submit - add_post
             if 'action' in post_data:
-                # update information from other vessels
-                if ''.join(post_data['action']) == "submit":
+                # receive a new post from other vessels
+                if ''.join(post_data['action']) == add_post:
                     # new value
-                    if
-                    self.server.add_value_to_store(''.join(post_data['value']))
+                    idi = int( ''.join(post_data['key']) )
+                    uni_id = int( ''.join(post_data['uni_id']) )
+
+                    if idi not in self.server.store.keys():
+                        #if the id is not occupy with other post - there isn't any conflict
+                        self.server.add_value_to_store(''.join(post_data['value']), uni_id)
+
+                    else:
+                        #otherwise - there is a conflict with the id's
 
 
 
             else:
-                # submit information write by the own vessel
+                # new post - submit information write by the own vessel
                 self.server.add_value_to_store(post_data['entry'])
                 key = self.server.current_key
                 uni_id = self.server.store[key].uniqueid
-                action = "submit"
+                action = add_post
                 retransmit = True
 
 
         elif 'delete' in post_data:
-            # modify or delete
+            # received a request for modify or delete
             id_mod_del = int(''.join(post_data['delete']))
             key = int(self.path[9:])
             uni_id = self.server.store[key].uniqueid
@@ -271,26 +369,31 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
             if id_mod_del == 0:
                 # modify
                 self.server.modify_value_in_store(uni_id, post_data['entry'])
-                action = "modify"
+                action = modi_post
                 retransmit = True
 
             elif id_mod_del == 1:
                 # delete
                 self.server.delete_value_in_store(uni_id)
-                action = "delete"
+                action = del_post
                 retransmit = True
 
 
         elif 'action' in post_data:
             # update information (modify or delete a string) from another vessel
             key_up = int(''.join(post_data['key']))
-            if ''.join(post_data['action']) == "modify":
-                # update value
-                self.server.modify_value_in_store(key_up, post_data['value'])
+            uni_id = int( ''.join(post_data['uni_id']) )
 
-            elif ''.join(post_data['action']) == "delete":
+            if ''.join(post_data['action']) == modi_post:
+                # update value
+                self.server.modify_value_in_store(uni_id, post_data['value'])
+
+
+            elif ''.join(post_data['action']) == del_post:
                 # delete value
-                self.server.delete_value_in_store(key_up)
+                self.server.delete_value_in_store(uni_id)
+
+
 
         if retransmit:
             retransmit = False
@@ -310,6 +413,7 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
 
 
 # ------------------------------------------------------------------------------------------------------
+#       Main
 # ------------------------------------------------------------------------------------------------------
 # Execute the code
 if __name__ == '__main__':
