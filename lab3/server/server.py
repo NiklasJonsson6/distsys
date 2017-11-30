@@ -65,12 +65,13 @@ PORT_NUMBER = 8080
 #       Class of a message
 # ------------------------------------------------------------------------------------------------------
 class Message:
-    def __init__(self, uniqueid, message):
+    def __init__(self, uniqueid, message, idi):
         #unique id - doesn't change during all the execution
         self.uniqueid = uniqueid
         #data post
         self.message = message
-
+        #seq. number
+        self.id = idi
         #store action in the waiting actions list
         self.action = None
 # ------------------------------------------------------------------------------------------------------
@@ -85,8 +86,8 @@ class BlackboardServer(HTTPServer):
     def __init__(self, server_address, handler, node_id, vessel_list):
         # We call the super init
         HTTPServer.__init__(self, server_address, handler)
-        # we create the dictionary of values
-        self.store = {}
+        # we create the list of values
+        self.store = []
         # We keep a variable of the next id to insert
         self.current_key = -1
         # our own ID (IP is 10.1.0.ID)
@@ -102,7 +103,7 @@ class BlackboardServer(HTTPServer):
         # We add the value to the store
         # next id
         self.current_key = self.current_key + 1
-        unique_id = self.current_key
+        idi = self.current_key
         ip = self.vessel_id
 
         # store in the dict
@@ -110,19 +111,19 @@ class BlackboardServer(HTTPServer):
 
         #uni_id: varible that stores an unique id that doesn't change during all the program
         #this is form by two numbers: the host id of Ip address(last number) and seq.number (current_key)
-        #the two first  numbers are the IP and the other numbers form the seq.munber
-        #uni_id = [ 0, 1, | 2,.....] = [ IP | seq.number ]
+        #the first  numbers are form the seq.munber and the lat two numbers are from the IP
+        #uni_id = [ 0, 1, | 2,.....] = [ seq.number | IP ]
         #by our choice of simplification, we assume that the maximum number of nodes are 100, which for the simulation
         #using the mininet is perfect resonable, but if we for some way needed more node we could easly change this part
         #of the code to be possible store more node
         if ip < 10:
-            uni_id = int('0%d%d' %(ip, unique_id))
+            uni_id = int('0%d%d' %(idi, ip))
         else
-            uni_id = int('%d%d' %(ip, unique_id))
+            uni_id = int('%d%d' %(idi, ip))
 
-        newmessage = Message(uni_id, message)
+        newmessage = Message(uni_id, message, idi)
 
-        self.store[self.current_key] = newmessage
+        self.store.append(newmessage)
 
 
 # ------------------------------------------------------------------------------------------------------
@@ -134,9 +135,9 @@ class BlackboardServer(HTTPServer):
 
         # store in the dict
         message = ''.join(m)
-        newmessage = Message(unique_id, message)
+        newmessage = Message(unique_id, message, self.current_key)
 
-        self.store[self.current_key] = newmessage
+        self.store.append(newmessage)
 
 
 # ------------------------------------------------------------------------------------------------------
@@ -147,16 +148,16 @@ class BlackboardServer(HTTPServer):
 
         mes= ''.join(value)
 
-        for key in self.store.keys():
-            if self.store[key].uniqueid == uni_id:
-                self.store[key].message = mes
+        for i in range (0, len(self.store)):
+            if self.store[i].uniqueid == uni_id:
+                self.store[i].message = mes
                 wait_action = True
                 break
 
         if wait_action == False:
         #the information on vessel is not fully update - we have to wait
         #add this action in a list
-            wait_node = Message(uni_id, mes)
+            wait_node = Message(uni_id, mes, None)
             wait_node.action = modi_post
 
             self.wait_list.append(wait_node)
@@ -168,11 +169,10 @@ class BlackboardServer(HTTPServer):
     def delete_value_in_store(self, uni_id):
         # we delete a value in the store if it exists
         wait_action = False
-
-        for key in self.store.keys():
-            if self.store[key].uniqueid == uni_id:
+        for i in range (0, len(self.store)):
+            if self.store[i].uniqueid == uni_id:
                 wait_action = True
-                del self.store[key]
+                self.store.pop(i)
                 break
 
 
@@ -190,7 +190,7 @@ class BlackboardServer(HTTPServer):
         # the Boolean variable we will return
         success = False
         # The variables must be encoded in the URL format, through urllib.urlencode
-        post_content = urlencode({'action': action, 'key': key, 'value': value, 'uni_id': uni_id})
+        post_content = urlencode({'action': action, 'key': key, 'value': value})
         # the HTTP header must contain the type of data we are transmitting, here URL encoded
         headers = {"Content-type": "application/x-www-form-urlencoded"}
         # We should try to catch errors when contacting the vessel
@@ -220,14 +220,14 @@ class BlackboardServer(HTTPServer):
 
 # ------------------------------------------------------------------------------------------------------
     # We send a received value to all the other vessels of the system
-    def propagate_value_to_vessels(self, path, action, key, value, uni_id):
+    def propagate_value_to_vessels(self, path, action, key, value):
         # We iterate through the vessel list
         for vessel in self.vessels:
             # We should not send it to our own IP, or we would create an infinite loop of updates
             if vessel != ("10.1.0.%s" % self.vessel_id):
                 # A good practice would be to try again if the request failed
                 # Here, we do it only once
-                self.contact_vessel(vessel, path, action, key, value, uni_id)
+                self.contact_vessel(vessel, path, action, key, value)
 
 
 # ------------------------------------------------------------------------------------------------------
@@ -285,8 +285,11 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
     def update_board(self):
         self.set_HTTP_headers(200)
         new_entry = ""
-        for i in self.server.store.keys(): #for every item in store
-            entry = entry_template % ("entries/" + str(i), i, self.server.store[i].message) #create entries
+
+        for i in self.server.store:
+        #for every item in store
+            idi = self.server.store[i].uniqueid
+            entry = entry_template % ("entries/" + str(idi), i, self.server.store[i].message) #create entries
             new_entry += entry
         newboard = boardcontents_template #put the new entries into the boardcontents
         newboard = newboard[:-5]
@@ -304,8 +307,9 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
         html_reponse = board_frontpage_header_template + boardcontents_template + board_frontpage_footer_template
         new_entry = ""
 
-        for i in self.server.store.keys(): #for each item in store, create entries
-            entry = entry_template % ("entries/" + str(i), i, self.server.store[i].message)
+        for i in self.server.store: #for each item in store, create entries
+            idi = self.server.store[i].uniqueid
+            entry = entry_template % ("entries/" + str(idi), i, self.server.store[i].message)
             new_entry += entry
         boardcontents_template2 = boardcontents_template[:-5] #put the new entries into the boardcontents
         boardcontents_template2 += '<p>'
@@ -339,23 +343,16 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
                 # receive a new post from other vessels
                 if ''.join(post_data['action']) == add_post:
                     # new value
-                    idi = int( ''.join(post_data['key']) )
                     uni_id = int( ''.join(post_data['uni_id']) )
 
-                    if idi not in self.server.store.keys():
-                        #if the id is not occupy with other post - there isn't any conflict
-                        self.server.add_value_to_store(''.join(post_data['value']), uni_id)
-
-                    else:
-                        #otherwise - there is a conflict with the id's
-
+                    #if the id is not occupy with other post - there isn't any conflict
+                    self.server.add_value_to_store(''.join(post_data['value']), uni_id)
 
 
             else:
                 # new post - submit information write by the own vessel
                 self.server.add_value_to_store(post_data['entry'])
-                key = self.server.current_key
-                uni_id = self.server.store[key].uniqueid
+                key = self.server.store[key].uniqueid
                 action = add_post
                 retransmit = True
 
@@ -364,25 +361,23 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
             # received a request for modify or delete
             id_mod_del = int(''.join(post_data['delete']))
             key = int(self.path[9:])
-            uni_id = self.server.store[key].uniqueid
 
             if id_mod_del == 0:
                 # modify
-                self.server.modify_value_in_store(uni_id, post_data['entry'])
+                self.server.modify_value_in_store(key, post_data['entry'])
                 action = modi_post
                 retransmit = True
 
             elif id_mod_del == 1:
                 # delete
-                self.server.delete_value_in_store(uni_id)
+                self.server.delete_value_in_store(key)
                 action = del_post
                 retransmit = True
 
 
         elif 'action' in post_data:
             # update information (modify or delete a string) from another vessel
-            key_up = int(''.join(post_data['key']))
-            uni_id = int( ''.join(post_data['uni_id']) )
+            uni_up = int(''.join(post_data['key']))
 
             if ''.join(post_data['action']) == modi_post:
                 # update value
@@ -401,7 +396,7 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
             # We must then create threads if we want to do some heavy computation
             #
             # Random content
-            thread = Thread(target=self.server.propagate_value_to_vessels, args=(self.path, action, key, ''.join(post_data['entry']), uni_id ))
+            thread = Thread(target=self.server.propagate_value_to_vessels, args=(self.path, action, key, ''.join(post_data['entry'])))
             # We kill the process if we kill the server
             thread.daemon = True
             # We start the thread
@@ -409,6 +404,13 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
 
 
 # ------------------------------------------------------------------------------------------------------
+
+
+def reconciliation(list):
+
+    while 1:
+        sleep(5)
+        sorted(list, key = itemgetter(0) )
 
 
 
@@ -435,6 +437,11 @@ if __name__ == '__main__':
     # We launch a server
     server = BlackboardServer(('', PORT_NUMBER), BlackboardRequestHandler, vessel_id, vessel_list)
     print("Starting the server on port %d" % PORT_NUMBER)
+
+    thread = Thread(target=reconciliation, args=(server.store))
+    thread.daemon = True
+    thread.start()
+
 
     try:
         server.serve_forever()
