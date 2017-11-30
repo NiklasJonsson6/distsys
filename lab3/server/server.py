@@ -15,6 +15,8 @@ from httplib import HTTPConnection  # Create a HTTP connection, as a client (for
 from urllib import urlencode  # Encode POST content into the HTTP header
 from codecs import open  # Open a file
 from threading import Thread  # Thread Management
+from time import sleep
+from operator import itemgetter
 # ------------------------------------------------------------------------------------------------------
 
 
@@ -117,8 +119,8 @@ class BlackboardServer(HTTPServer):
         #using the mininet is perfect resonable, but if we for some way needed more node we could easly change this part
         #of the code to be possible store more node
         if ip < 10:
-            uni_id = int('0%d%d' %(idi, ip))
-        else
+            uni_id = int('%d0%d' %(idi, ip))
+        else:
             uni_id = int('%d%d' %(idi, ip))
 
         newmessage = Message(uni_id, message, idi)
@@ -177,7 +179,7 @@ class BlackboardServer(HTTPServer):
 
 
         if wait_action == False:
-            wait_node = Message(uni_id, mes)
+            wait_node = Message(uni_id, None)
             wait_node.action = del_post
 
             self.wait_list.append(wait_node)
@@ -352,7 +354,7 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
             else:
                 # new post - submit information write by the own vessel
                 self.server.add_value_to_store(post_data['entry'])
-                key = self.server.store[key].uniqueid
+                key = self.server.store[self.server.current_key].uniqueid
                 action = add_post
                 retransmit = True
 
@@ -377,7 +379,7 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
 
         elif 'action' in post_data:
             # update information (modify or delete a string) from another vessel
-            uni_up = int(''.join(post_data['key']))
+            uni_id = int(''.join(post_data['key']))
 
             if ''.join(post_data['action']) == modi_post:
                 # update value
