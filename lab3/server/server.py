@@ -14,9 +14,10 @@ from urlparse import parse_qs  # Parse POST data
 from httplib import HTTPConnection  # Create a HTTP connection, as a client (for POST requests to the other vessels)
 from urllib import urlencode  # Encode POST content into the HTTP header
 from codecs import open  # Open a file
-from threading import Thread  # Thread Management
+from threading import Thread, Lock  # Thread Management
 from time import sleep
-from operator import itemgetter
+from operator import attrgetter
+from threading import Lock
 # ------------------------------------------------------------------------------------------------------
 
 
@@ -64,6 +65,15 @@ PORT_NUMBER = 8080
 
 
 # ------------------------------------------------------------------------------------------------------
+#       Locks
+# ------------------------------------------------------------------------------------------------------
+mutex = Lock()
+
+# ------------------------------------------------------------------------------------------------------
+
+
+
+# ------------------------------------------------------------------------------------------------------
 #       Class of a message
 # ------------------------------------------------------------------------------------------------------
 class Message:
@@ -101,7 +111,7 @@ class BlackboardServer(HTTPServer):
 
 # ------------------------------------------------------------------------------------------------------
     # We add a value received to the store
-    def add_value_to_store(self, m):
+    def add_value_to_store_new(self, m):
         # We add the value to the store
         # next id
         self.current_key = self.current_key + 1
@@ -119,9 +129,10 @@ class BlackboardServer(HTTPServer):
         #using the mininet is perfect resonable, but if we for some way needed more node we could easly change this part
         #of the code to be possible store more node
         if ip < 10:
-            uni_id = int('%d0%d' %(idi, ip))
+            uni_id = int("%d0%d" %(idi, ip))
         else:
-            uni_id = int('%d%d' %(idi, ip))
+            uni_id = int("%d%d" %(idi, ip))
+
 
         newmessage = Message(uni_id, message, idi)
 
@@ -179,7 +190,7 @@ class BlackboardServer(HTTPServer):
 
 
         if wait_action == False:
-            wait_node = Message(uni_id, None)
+            wait_node = Message(uni_id, None, None)
             wait_node.action = del_post
 
             self.wait_list.append(wait_node)
@@ -188,7 +199,7 @@ class BlackboardServer(HTTPServer):
 # ------------------------------------------------------------------------------------------------------
     # Contact a specific vessel with a set of variables to transmit to it
 
-    def contact_vessel(self, vessel_ip, path, action, key, value, uni_id):
+    def contact_vessel(self, vessel_ip, path, action, key, value):
         # the Boolean variable we will return
         success = False
         # The variables must be encoded in the URL format, through urllib.urlencode
@@ -288,10 +299,10 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
         self.set_HTTP_headers(200)
         new_entry = ""
 
-        for i in self.server.store:
+        for i in range (0, len(self.server.store) ):
         #for every item in store
             idi = self.server.store[i].uniqueid
-            entry = entry_template % ("entries/" + str(idi), i, self.server.store[i].message) #create entries
+            entry = entry_template % ("entries/" + str(idi), i, (self.server.store[i].message+ str(self.server.store[i].uniqueid ))) #create entries
             new_entry += entry
         newboard = boardcontents_template #put the new entries into the boardcontents
         newboard = newboard[:-5]
@@ -309,7 +320,7 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
         html_reponse = board_frontpage_header_template + boardcontents_template + board_frontpage_footer_template
         new_entry = ""
 
-        for i in self.server.store: #for each item in store, create entries
+        for i in range (0, len(self.server.store) ):#for each item in store, create entries
             idi = self.server.store[i].uniqueid
             entry = entry_template % ("entries/" + str(idi), i, self.server.store[i].message)
             new_entry += entry
@@ -345,7 +356,7 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
                 # receive a new post from other vessels
                 if ''.join(post_data['action']) == add_post:
                     # new value
-                    uni_id = int( ''.join(post_data['uni_id']) )
+                    uni_id = int( ''.join(post_data['key']) )
 
                     #if the id is not occupy with other post - there isn't any conflict
                     self.server.add_value_to_store(''.join(post_data['value']), uni_id)
@@ -353,7 +364,7 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
 
             else:
                 # new post - submit information write by the own vessel
-                self.server.add_value_to_store(post_data['entry'])
+                self.server.add_value_to_store_new(post_data['entry'])
                 key = self.server.store[self.server.current_key].uniqueid
                 action = add_post
                 retransmit = True
@@ -404,15 +415,43 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
             # We start the thread
             thread.start()
 
-
 # ------------------------------------------------------------------------------------------------------
 
 
-def reconciliation(list):
+# ------------------------------------------------------------------------------------------------------
+#       Reconciliation function - order the list and guarantees
+#that all the vessels have the same infomation
+# ------------------------------------------------------------------------------------------------------
+
+def reconciliation(lista, wait_list):
 
     while 1:
         sleep(5)
-        sorted(list, key = itemgetter(0) )
+
+        # lock (mutex) - only this thread has access to the critical region (self.server.store)
+        mutex.acquire()
+
+        if len(wait_list) > 0:
+        #there are some action waiting to be realize
+            for  i in range (0, len(lista) ):
+                if wait_list[i].action == modi_post:
+                #modify
+                    self.server.modify_value_in_store(wait_list[i].uniqueid, wait_list[i].message)
+
+                elif wait_list[i].action == del_post:
+                #delete
+                    self.server.delete_value_in_store(wait_list[i].uniqueid)
+
+        #order the list by the unique id
+        lista.sort( key=attrgetter('uniqueid'))
+
+        for idi in range (0, len(lista) ):
+            lista[idi].id = idi
+
+        #unlock the mutex
+        mutex.release()
+
+# ------------------------------------------------------------------------------------------------------
 
 
 
@@ -440,9 +479,10 @@ if __name__ == '__main__':
     server = BlackboardServer(('', PORT_NUMBER), BlackboardRequestHandler, vessel_id, vessel_list)
     print("Starting the server on port %d" % PORT_NUMBER)
 
-    thread = Thread(target=reconciliation, args=(server.store))
-    thread.daemon = True
-    thread.start()
+
+    t = Thread(target=reconciliation, args=(server.store, server.wait_list) )
+    t.daemon = True
+    t.start()
 
 
     try:
