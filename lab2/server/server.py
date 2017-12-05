@@ -358,7 +358,7 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
         id_mod_del = -1
         post_data = self.parse_POST_request()
         self.set_HTTP_headers(200)
-
+	
         if self.path == "/board":
         # submit - new entry
             if 'action' in post_data:
@@ -367,15 +367,17 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
                     self.server.add_value_to_store_leader(''.join(post_data['value']))
                     entry = ''.join(post_data['value'])
                     start = float(''.join(post_data['key']))
-                    print "id= %d start_time= %d" %(self.server.current_key, start)
+                    
+
             else:
             # submit information write by the own leader vessel
                 self.server.add_value_to_store_leader(post_data['entry'])
                 entry = ''.join(post_data['entry'])
+		start = -1
 
             key = self.server.current_key
-            action = add_vessels
-
+            #action = add_vessels
+	    action = start
 
         elif 'delete' in post_data:
         # modify or delete in the leader
@@ -425,23 +427,27 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
 
         id_mod_del = -1
         retransmit_to_leader = False
-
+	counter=0
         post_data = self.parse_POST_request()
         self.set_HTTP_headers(200)
-
+	list_time = []
 
         if self.path == "/board":
             if 'action' in post_data:
             # received new entry from the leader to post
-                if ''.join(post_data['action']) == add_vessels:
+                #if ''.join(post_data['action']) == add_vessels:
                     # new value
-                    key = int(''.join(post_data['key']))
-                    self.server.add_value_to_store_normal(key, ''.join(post_data['value']))
-
-                    #stopping time for testing lab3
-                    end = time()
-                    print "id= %d start_time= %d" %(self.server.current_key, end)
-
+                key = int(''.join(post_data['key']))
+                self.server.add_value_to_store_normal(key, ''.join(post_data['value']))
+		counter+=1
+		print(counter)
+                #stopping time for testing lab3
+                end = time()
+		start = float(''.join(post_data['action']))
+		tim= end-start
+		list_time.append(tim)
+		if counter == 79:
+			print(max(list_time))
             else:
             #contact the leader to a new entry
                 action = add_leader
@@ -452,7 +458,7 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
                 #starting time for testing lab3
                 start = time()
                 key = start
-                print("start time: %d" %start)
+                
 
         elif 'delete' in post_data:
             # contact the leader to update information (modify or delete)
