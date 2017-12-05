@@ -366,6 +366,8 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
                 if ''.join(post_data['action']) == add_leader:
                     self.server.add_value_to_store_leader(''.join(post_data['value']))
                     entry = ''.join(post_data['value'])
+                    start = float(''.join(post_data['key']))
+                    print "id= %d start_time= %d" %(self.server.current_key, start)
             else:
             # submit information write by the own leader vessel
                 self.server.add_value_to_store_leader(post_data['entry'])
@@ -438,17 +440,18 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
 
                     #stopping time for testing lab3
                     end = time()
-                    print("end time: %d" %end)
+                    print "id= %d start_time= %d" %(self.server.current_key, end)
 
             else:
             #contact the leader to a new entry
                 action = add_leader
                 entry = ''.join(post_data['entry'])
-                key = None
+
                 retransmit_to_leader = True
 
                 #starting time for testing lab3
                 start = time()
+                key = start
                 print("start time: %d" %start)
 
         elif 'delete' in post_data:
