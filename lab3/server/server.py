@@ -302,7 +302,7 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
         for i in range (0, len(self.server.store) ):
         #for every item in store
             idi = self.server.store[i].uniqueid
-            entry = entry_template % ("entries/" + str(idi), i, (self.server.store[i].message+ str(self.server.store[i].uniqueid ))) #create entries
+            entry = entry_template % ("entries/" + str(idi), i, (self.server.store[i].message)) #create entries
             new_entry += entry
         newboard = boardcontents_template #put the new entries into the boardcontents
         newboard = newboard[:-5]

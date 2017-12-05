@@ -15,7 +15,7 @@ from urllib import urlencode  # Encode POST content into the HTTP header
 from codecs import open  # Open a file
 from threading import Thread # Thread Management
 from random import randint	#random number
-from time import sleep
+from time import sleep, time
 
 
 # ------------------------------------------------------------------------------------------------------
@@ -436,12 +436,20 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
                     key = int(''.join(post_data['key']))
                     self.server.add_value_to_store_normal(key, ''.join(post_data['value']))
 
+                    #stopping time for testing lab3
+                    end = time()
+                    print("end time: %d" %end)
+
             else:
             #contact the leader to a new entry
                 action = add_leader
                 entry = ''.join(post_data['entry'])
                 key = None
                 retransmit_to_leader = True
+
+                #starting time for testing lab3
+                start = time()
+                print("start time: %d" %start)
 
         elif 'delete' in post_data:
             # contact the leader to update information (modify or delete)
