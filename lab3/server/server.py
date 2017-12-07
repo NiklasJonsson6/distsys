@@ -15,7 +15,7 @@ from httplib import HTTPConnection  # Create a HTTP connection, as a client (for
 from urllib import urlencode  # Encode POST content into the HTTP header
 from codecs import open  # Open a file
 from threading import Thread, Lock  # Thread Management
-from time import sleep
+from time import sleep, time
 from operator import attrgetter
 from threading import Lock
 # ------------------------------------------------------------------------------------------------------
@@ -54,7 +54,6 @@ except Exception as e:
 # ------------------------------------------------------------------------------------------------------
 
 
-
 # ------------------------------------------------------------------------------------------------------
 #       Static variables definitions
 # ------------------------------------------------------------------------------------------------------
@@ -63,14 +62,21 @@ PORT_NUMBER = 8080
 # ------------------------------------------------------------------------------------------------------
 
 
+# ------------------------------------------------------------------------------------------------------
+#       Global variables definitions
+# ------------------------------------------------------------------------------------------------------
+global counter
+global num_messages
+
+# ------------------------------------------------------------------------------------------------------
+
 
 # ------------------------------------------------------------------------------------------------------
 #       Locks
 # ------------------------------------------------------------------------------------------------------
 mutex = Lock()
-
+mutex_list = Lock()
 # ------------------------------------------------------------------------------------------------------
-
 
 
 # ------------------------------------------------------------------------------------------------------
@@ -87,7 +93,6 @@ class Message:
         #store action in the waiting actions list
         self.action = None
 # ------------------------------------------------------------------------------------------------------
-
 
 
 # ------------------------------------------------------------------------------------------------------
@@ -124,7 +129,7 @@ class BlackboardServer(HTTPServer):
         #uni_id: varible that stores an unique id that doesn't change during all the program
         #this is form by two numbers: the host id of Ip address(last number) and seq.number (current_key)
         #the first  numbers are form the seq.munber and the lat two numbers are from the IP
-        #uni_id = [ 0, 1, | 2,.....] = [ seq.number | IP ]
+        #uni_id = [ seq.number | IP ]
         #by our choice of simplification, we assume that the maximum number of nodes are 100, which for the simulation
         #using the mininet is perfect resonable, but if we for some way needed more node we could easly change this part
         #of the code to be possible store more node
@@ -199,11 +204,11 @@ class BlackboardServer(HTTPServer):
 # ------------------------------------------------------------------------------------------------------
     # Contact a specific vessel with a set of variables to transmit to it
 
-    def contact_vessel(self, vessel_ip, path, action, key, value):
+    def contact_vessel(self, vessel_ip, path, action, key, value, time1):
         # the Boolean variable we will return
         success = False
         # The variables must be encoded in the URL format, through urllib.urlencode
-        post_content = urlencode({'action': action, 'key': key, 'value': value})
+        post_content = urlencode({'action': action, 'key': key, 'value': value, 'time': time1})
         # the HTTP header must contain the type of data we are transmitting, here URL encoded
         headers = {"Content-type": "application/x-www-form-urlencoded"}
         # We should try to catch errors when contacting the vessel
@@ -233,14 +238,14 @@ class BlackboardServer(HTTPServer):
 
 # ------------------------------------------------------------------------------------------------------
     # We send a received value to all the other vessels of the system
-    def propagate_value_to_vessels(self, path, action, key, value):
+    def propagate_value_to_vessels(self, path, action, key, value, time1):
         # We iterate through the vessel list
         for vessel in self.vessels:
             # We should not send it to our own IP, or we would create an infinite loop of updates
             if vessel != ("10.1.0.%s" % self.vessel_id):
                 # A good practice would be to try again if the request failed
                 # Here, we do it only once
-                self.contact_vessel(vessel, path, action, key, value)
+                self.contact_vessel(vessel, path, action, key, value, time1)
 
 
 # ------------------------------------------------------------------------------------------------------
@@ -349,6 +354,9 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
         post_data = self.parse_POST_request()
         self.set_HTTP_headers(200)
         retransmit = False
+        start = None
+        list_time = []
+
 
         if self.path == "/board":
             # submit - add_post
@@ -357,17 +365,33 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
                 if ''.join(post_data['action']) == add_post:
                     # new value
                     uni_id = int( ''.join(post_data['key']) )
+                    start_time = float(''.join(post_data['time']))
 
                     #if the id is not occupy with other post - there isn't any conflict
                     self.server.add_value_to_store(''.join(post_data['value']), uni_id)
+                    end = time()
 
+                    t_reach_cons = end - start_time
+                    list_time.append(t_reach_cons)
+                    global counter
+                    counter+=1
+
+                    if counter == num_messages:
+                        print"Time to reach consistency: %f" %(max(list_time))
 
             else:
                 # new post - submit information write by the own vessel
+                mutex_list.acquire()
                 self.server.add_value_to_store_new(post_data['entry'])
-                key = self.server.store[self.server.current_key].uniqueid
+                size = len(self.server.store) - 1
+                key = self.server.store[size].uniqueid
+                mutex_list.release()
+
                 action = add_post
                 retransmit = True
+
+                #starting time for testing lab3
+                start = time()
 
 
         elif 'delete' in post_data:
@@ -409,7 +433,7 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
             # We must then create threads if we want to do some heavy computation
             #
             # Random content
-            thread = Thread(target=self.server.propagate_value_to_vessels, args=(self.path, action, key, ''.join(post_data['entry'])))
+            thread = Thread(target=self.server.propagate_value_to_vessels, args=(self.path, action, key, ''.join(post_data['entry']), start ))
             # We kill the process if we kill the server
             thread.daemon = True
             # We start the thread
@@ -426,7 +450,7 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
 def reconciliation(lista, wait_list):
 
     while 1:
-        sleep(5)
+        sleep(1)
 
         # lock (mutex) - only this thread has access to the critical region (self.server.store)
         mutex.acquire()
@@ -474,6 +498,12 @@ if __name__ == '__main__':
         # We need to write the other vessels IP, based on the knowledge of their number
         for i in range(1, int(sys.argv[2]) + 1):
             vessel_list.append("10.1.0.%d" % i)  # We can add ourselves, we have a test in the propagation
+
+    global num_messages
+    num_messages = 40 * (int(sys.argv[2]) - 1)
+
+    global counter
+    counter = 0
 
     # We launch a server
     server = BlackboardServer(('', PORT_NUMBER), BlackboardRequestHandler, vessel_id, vessel_list)

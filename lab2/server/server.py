@@ -32,6 +32,8 @@ except Exception as e:
 # ------------------------------------------------------------------------------------------------------
 # Static variables definitions
 PORT_NUMBER = 8080
+global counter
+global num_messages
 
 # ------------------------------------------------------------------------------------------------------
 #     Protocols of communications - actions                 #       from   ->    to         #
@@ -358,7 +360,7 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
         id_mod_del = -1
         post_data = self.parse_POST_request()
         self.set_HTTP_headers(200)
-	
+
         if self.path == "/board":
         # submit - new entry
             if 'action' in post_data:
@@ -367,17 +369,15 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
                     self.server.add_value_to_store_leader(''.join(post_data['value']))
                     entry = ''.join(post_data['value'])
                     start = float(''.join(post_data['key']))
-                    
-
             else:
             # submit information write by the own leader vessel
                 self.server.add_value_to_store_leader(post_data['entry'])
                 entry = ''.join(post_data['entry'])
-		start = -1
+                start = -1
 
             key = self.server.current_key
             #action = add_vessels
-	    action = start
+            action = start
 
         elif 'delete' in post_data:
         # modify or delete in the leader
@@ -427,10 +427,10 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
 
         id_mod_del = -1
         retransmit_to_leader = False
-	counter=0
+
         post_data = self.parse_POST_request()
         self.set_HTTP_headers(200)
-	list_time = []
+        list_time = []
 
         if self.path == "/board":
             if 'action' in post_data:
@@ -439,15 +439,15 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
                     # new value
                 key = int(''.join(post_data['key']))
                 self.server.add_value_to_store_normal(key, ''.join(post_data['value']))
-		counter+=1
-		print(counter)
+                global counter
+                counter+=1
                 #stopping time for testing lab3
                 end = time()
-		start = float(''.join(post_data['action']))
-		tim= end-start
-		list_time.append(tim)
-		if counter == 79:
-			print(max(list_time))
+                start = float(''.join(post_data['action']))
+                tim= end-start
+                list_time.append(tim)
+                if counter == num_messages:
+                    print"Time to reach consistency: %f" %(max(list_time))
             else:
             #contact the leader to a new entry
                 action = add_leader
@@ -458,7 +458,7 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
                 #starting time for testing lab3
                 start = time()
                 key = start
-                
+
 
         elif 'delete' in post_data:
             # contact the leader to update information (modify or delete)
@@ -549,7 +549,7 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
 # ------------------------------------------------------------------------------------------------------
     def select_leader(self):
         #wainting to finish to receive all the communications
-        sleep(15)
+        sleep(1)
 
         for addr_dead in self.server.list_deads:
             if addr_dead[-2] == '.' :
@@ -610,6 +610,11 @@ if __name__ == '__main__':
         for i in range(1, int(sys.argv[2]) + 1):
             vessel_list.append("10.1.0.%d" % i)  # We can add ourselves, we have a test in the propagation
 
+    global num_messages
+    num_messages = 40 * (int(sys.argv[2]) - 1)
+
+    global counter
+    counter=0
 
     # We launch a server
     server = BlackboardServer(('', PORT_NUMBER), BlackboardRequestHandler, vessel_id, vessel_list)
