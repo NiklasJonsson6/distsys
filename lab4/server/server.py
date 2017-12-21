@@ -19,10 +19,8 @@ from threading import Thread  # Thread Management
 
 # Global variables for HTML templates
 try:
-    board_frontpage_footer_template = open('server/board_frontpage_footer_template.html', 'r').read()
-    board_frontpage_header_template = open('server/board_frontpage_header_template.html', 'r').read()
-    boardcontents_template = open('server/boardcontents_template.html', 'r').read()
-    entry_template = open('server/entry_template.html', 'r').read()
+    vote_frontpage_template = open('server/vote_frontpage_template.html', 'r').read()
+    vote_result_template = open('server/vote_result_template.html', 'r').read()
 except Exception as e:
     print(e)
 
@@ -41,42 +39,18 @@ class BlackboardServer(HTTPServer):
     def __init__(self, server_address, handler, node_id, vessel_list):
         # We call the super init
         HTTPServer.__init__(self, server_address, handler)
-        # we create the dictionary of values
-        self.store = {}
-        # We keep a variable of the next id to insert
-        self.current_key = -1
         # our own ID (IP is 10.1.0.ID)
         self.vessel_id = vessel_id
         # The list of other vessels
         self.vessels = vessel_list
 
-    # ------------------------------------------------------------------------------------------------------
-    # We add a value received to the store
-    def add_value_to_store(self, value):
-        # We add the value to the store
-        # next id
-        self.current_key = self.current_key + 1
-        # store in the dict
-        value = ''.join(value)
-        self.store[self.current_key] = value
+        self.vote = 0
+        self.byzantine_votes = []
+        self.byzantine_vectors = []
+        self.byzantine = False
 
-    # ------------------------------------------------------------------------------------------------------
-    # We modify a value received in the store
-    def modify_value_in_store(self, key, value):
-        # we modify a value in the store if it exists
-        if key in self.store.keys():
-            value = ''.join(value)
-            self.store[key] = value
-
-
-
-        # ------------------------------------------------------------------------------------------------------
-
-    # We delete a value received from the store
-    def delete_value_in_store(self, key):
-        # we delete a value in the store if it exists
-        if key in self.store.keys():
-            del self.store[key]
+        self.votes = {}
+        self.othersvotes = {}
 
 
         # ------------------------------------------------------------------------------------------------------
@@ -125,6 +99,14 @@ class BlackboardServer(HTTPServer):
                 # Here, we do it only once
                 self.contact_vessel(vessel, path, action, key, value)
 
+    #byzantine behaviour, here different votes might be sent to different vessels
+    def byzantine_value_to_vessels(self, path, action, key):
+        i = 0
+        for vessel in self.vessels:
+            if vessel != ("10.1.0.%s" % self.vessel_id):
+                self.contact_vessel(vessel, path, action, key, self.byzantine_votes[i])
+                i += 1
+
 
 # ------------------------------------------------------------------------------------------------------
 
@@ -160,6 +142,43 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
         # we return the data
         return post_data
 
+    # Compute byzantine votes for round 1, by trying to create
+    # a split decision.
+    # input:
+    #	number of loyal nodes,
+    #	number of total nodes,
+    #	Decision on a tie: True or False
+    # output:
+    #	A list with votes to send to the loyal nodes
+    #	in the form [1,0,1,.....]
+    def compute_byzantine_vote_round1(self, no_loyal, no_total, on_tie):
+        result_vote = []
+        for i in range(0, no_loyal):
+            if i % 2 == 0:
+                result_vote.append(1 - on_tie)
+            else:
+                result_vote.append(on_tie)
+        return result_vote
+
+    # Compute byzantine votes for round 2, trying to swing the decision
+    # on different directions for different nodes.
+    # input:
+    #	number of loyal nodes,
+    #	number of total nodes,
+    #	Decision on a tie: True or False
+    # output:
+    #	A list where every element is a the vector that the
+    #	byzantine node will send to every one of the loyal ones
+    #	in the form [[1,...],[0,...],...]
+    def compute_byzantine_vote_round2(self, no_loyal, no_total, on_tie):
+        result_vectors = []
+        for i in range(0, no_loyal):
+            if i % 2 == 0:
+                result_vectors.append(str(on_tie) * no_total)
+            else:
+                result_vectors.append(str(1 - on_tie) * no_total)
+        return result_vectors
+
     # ------------------------------------------------------------------------------------------------------
     # ------------------------------------------------------------------------------------------------------
     # Request handling - GET
@@ -168,46 +187,32 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
     # This function is called AUTOMATICALLY upon reception and is executed as a thread!
     def do_GET(self):
         print("Receiving a GET on path %s" % self.path)
-        # if path is /board, only the boardcontents template should be updated, else the whole page
-        if self.path == '/board':
-            self.update_board()
+
+        if self.path == '/vote/result':
+            self.get_result()
         else:
             self.do_GET_Index()
         # ------------------------------------------------------------------------------------------------------
         # GET logic - specific path
         # ------------------------------------------------------------------------------------------------------
 
-    def update_board(self):
+    def get_result(self):
+        # We set the response status code to 200 (OK)
         self.set_HTTP_headers(200)
-        new_entry = ""
-        for i in self.server.store.keys(): #for every item in store
-            entry = entry_template % ("entries/" + str(i), i, self.server.store[i]) #create entries
-            new_entry += entry
-        newboard = boardcontents_template #put the new entries into the boardcontents
-        newboard = newboard[:-5]
-        newboard += '<p>'
-        newboard += new_entry
-        newboard += '</div>'
-        self.wfile.write(newboard)
+
+        #add the result string to the template
+        result = vote_result_template % self.server.result
+        self.wfile.write(result)
 
     def do_GET_Index(self):
         # We set the response status code to 200 (OK)
         self.set_HTTP_headers(200)
-        # We should do some real HTML here
 
-        html_reponse = board_frontpage_header_template + boardcontents_template + board_frontpage_footer_template
-        new_entry = ""
+        #add the result string to the template
+        result = vote_result_template % self.server.result
+        html_response = vote_frontpage_template + result
 
-        for i in self.server.store.keys(): #for each item in store, create entries
-            entry = entry_template % ("entries/" + str(i), i, self.server.store[i])
-            new_entry += entry
-        boardcontents_template2 = boardcontents_template[:-5] #put the new entries into the boardcontents
-        boardcontents_template2 += '<p>'
-        boardcontents_template2 += new_entry
-        boardcontents_template2 += '</div>'
-        html_reponse = board_frontpage_header_template + boardcontents_template2 + board_frontpage_footer_template
-
-        self.wfile.write(html_reponse)
+        self.wfile.write(html_response)
 
     # ------------------------------------------------------------------------------------------------------
 
@@ -222,68 +227,75 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
         # We should also parse the data received
         # and set the headers for the client
 
-        id_mod_del = -1
         post_data = self.parse_POST_request()
         self.set_HTTP_headers(200)
         retransmit = False
 
-        if self.path == "/board":
-            # submit
-            if 'action' in post_data:
-                # update information from other vessels
-                if ''.join(post_data['action']) == "submit":
-                    # new value
-                    self.server.add_value_to_store(''.join(post_data['value']))
-            else:
-                # submit information write by the own vessel
-                self.server.add_value_to_store(post_data['entry'])
-                key = self.server.current_key
-                action = "submit"
-                retransmit = True
+        #other vessel
+        if 'action' in post_data:
+            if ''.join(post_data['action']) == 'round1':
+                key = ''.join(post_data['key'])
+                value = ''.join(post_data['value'])
+                self.server.votes[key] = value
 
+                #if all votes are cast, start round 2
+                if len(self.server.votes) == len(self.server.vessels):
+                    if self.server.byzantine:
+                        self.server.byzantine_vectors = self.compute_byzantine_vote_round2(3, 4, 1)
+                        self.conta
 
-        elif 'delete' in post_data:
-            # modify or delete
-            id_mod_del = int(''.join(post_data['delete']))
-            key = int(self.path[9:])
+                    else:
+                        #create a string of the votes
+                        myvotes = ""
+                        for vote in self.server.votes:
+                            myvotes += str(vote)
 
-            if id_mod_del == 0:
-                # modify
-                self.server.modify_value_in_store(key, post_data['entry'])
-                action = "modify"
-                retransmit = True
+                        #send own votes to other vessels
+                        thread = Thread(target=self.server.propagate_value_to_vessels,
+                                        args=(self.path, 'round2', myvotes))
+                        thread.daemon = True
+                        thread.start()
 
-            elif id_mod_del == 1:
-                # delete
-                self.server.delete_value_in_store(key)
-                action = "delete"
-                retransmit = True
+            elif ''.join(post_data['action']) == 'round2':
+                key = ''.join(post_data['key'])
+                #the values are represented by a string with length == number_of_vessels and 0, 1 for wait, attack
+                value = ''.join(post_data['value'])
+                self.server.othersvotes[key] = value
 
+        #own vessel
+        else:
+            if self.path == "/vote/attack":
+                self.server.votes[self.server.vessel_id] = 1
 
-        elif 'action' in post_data:
-            # update information (modify or delete a string) from another vessel
-            key_up = int(''.join(post_data['key']))
-            if ''.join(post_data['action']) == "modify":
-                # update value
-                self.server.modify_value_in_store(key_up, post_data['value'])
+            elif self.path == "/vote/retreat":
+                self.server.votes[self.server.vessel_id] = 0
 
-            elif ''.join(post_data['action']) == "delete":
-                # delete value
-                self.server.delete_value_in_store(key_up)
+            elif self.path == "/vote/byzantine":
+                self.server.byzantine = True
+                self.server.byzantine_votes = self.compute_byzantine_vote_round1(3, 4, 1)
+
+            retransmit = True
+            action = "round1"
 
         if retransmit:
             retransmit = False
             # do_POST send the message only when the function finishes
             # We must then create threads if we want to do some heavy computation
-            #
-            # Random content
-            thread = Thread(target=self.server.propagate_value_to_vessels,
-                            args=(self.path, action, key, ''.join(post_data['entry'])))
-            # We kill the process if we kill the server
-            thread.daemon = True
-            # We start the thread
-            thread.start()
 
+            if self.server.byzantine:
+                thread = Thread(target=self.server.byzantine_value_to_vessels,
+                                args=(self.path, action, self.server.vessel_id))
+                # We kill the process if we kill the server
+                thread.daemon = True
+                # We start the thread
+                thread.start()
+            else:
+                thread = Thread(target=self.server.propagate_value_to_vessels,
+                                args=(self.path, action, self.server.vessel_id, self.server.vote))
+                # We kill the process if we kill the server
+                thread.daemon = True
+                # We start the thread
+                thread.start()
 
 # ------------------------------------------------------------------------------------------------------
 
