@@ -50,7 +50,7 @@ class BlackboardServer(HTTPServer):
         self.byzantine = False
 
         self.votes = {}
-        self.othersvotes = {}
+        self.vectors = {}
 
 
         # ------------------------------------------------------------------------------------------------------
@@ -100,11 +100,11 @@ class BlackboardServer(HTTPServer):
                 self.contact_vessel(vessel, path, action, key, value)
 
     #byzantine behaviour, here different votes might be sent to different vessels
-    def byzantine_value_to_vessels(self, path, action, key):
+    def byzantine_value_to_vessels(self, path, action, key, value):
         i = 0
         for vessel in self.vessels:
             if vessel != ("10.1.0.%s" % self.vessel_id):
-                self.contact_vessel(vessel, path, action, key, self.byzantine_votes[i])
+                self.contact_vessel(vessel, path, action, key, value[i])
                 i += 1
 
 
@@ -231,39 +231,25 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
         self.set_HTTP_headers(200)
         retransmit = False
 
-        #other vessel
+        #post from another vessel
         if 'action' in post_data:
             if ''.join(post_data['action']) == 'round1':
+                #add the vote to a dict of votes
                 key = ''.join(post_data['key'])
                 value = ''.join(post_data['value'])
                 self.server.votes[key] = value
 
-                #if all votes are cast, start round 2
-                if len(self.server.votes) == len(self.server.vessels):
-                    if self.server.byzantine:
-                        self.server.byzantine_vectors = self.compute_byzantine_vote_round2(3, 4, 1)
-                        self.conta
-
-                    else:
-                        #create a string of the votes
-                        myvotes = ""
-                        for vote in self.server.votes:
-                            myvotes += str(vote)
-
-                        #send own votes to other vessels
-                        thread = Thread(target=self.server.propagate_value_to_vessels,
-                                        args=(self.path, 'round2', myvotes))
-                        thread.daemon = True
-                        thread.start()
-
             elif ''.join(post_data['action']) == 'round2':
+                #add the vector to a dict of vectors
                 key = ''.join(post_data['key'])
                 #the values are represented by a string with length == number_of_vessels and 0, 1 for wait, attack
+                #the first character in the string represents the vote of vessel number one, etc
                 value = ''.join(post_data['value'])
-                self.server.othersvotes[key] = value
+                self.server.vectors[key] = value
 
-        #own vessel
+        #post from own vessel
         else:
+            #cast vote or assume byzantine behaviour
             if self.path == "/vote/attack":
                 self.server.votes[self.server.vessel_id] = 1
 
@@ -274,28 +260,52 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
                 self.server.byzantine = True
                 self.server.byzantine_votes = self.compute_byzantine_vote_round1(3, 4, 1)
 
-            retransmit = True
-            action = "round1"
-
-        if retransmit:
-            retransmit = False
-            # do_POST send the message only when the function finishes
-            # We must then create threads if we want to do some heavy computation
-
+            #propagate the vote, or the byzantine behaviour
             if self.server.byzantine:
                 thread = Thread(target=self.server.byzantine_value_to_vessels,
-                                args=(self.path, action, self.server.vessel_id))
+                                args=(self.path, 'round1', self.server.vessel_id, self.server.byzantine_votes))
                 # We kill the process if we kill the server
                 thread.daemon = True
                 # We start the thread
                 thread.start()
             else:
                 thread = Thread(target=self.server.propagate_value_to_vessels,
-                                args=(self.path, action, self.server.vessel_id, self.server.vote))
+                                args=(self.path, 'round1', self.server.vessel_id, self.server.vote))
                 # We kill the process if we kill the server
                 thread.daemon = True
                 # We start the thread
                 thread.start()
+
+        # if all votes are cast, start round 2
+        if len(self.server.votes) == len(self.server.vessels):
+            #add own vote vector to the dict
+            myvotes = ""
+            for vote in self.server.votes:
+                myvotes += str(vote)
+            self.server.vectors[self.server.vessel_id] = myvotes
+
+            # byzantine behaviour
+            if self.server.byzantine:
+                self.server.byzantine_vectors = self.compute_byzantine_vote_round2(3, 4, 1)
+
+                # send own votes to other vessels
+                thread = Thread(target=self.server.byzantine_value_to_vessels,
+                                args=(self.path, 'round2', self.server.vessel_id, self.server.byzantine_vectors))
+                thread.daemon = True
+                thread.start()
+
+            # honest behaviour
+            else:
+                # send own vector to other vessels
+                thread = Thread(target=self.server.propagate_value_to_vessels,
+                                args=(self.path, 'round2', self.server.vessel_id, myvotes))
+                thread.daemon = True
+                thread.start()
+
+        #if all vectors are received, calculate and display result
+        if len(self.server.vectors) == len(self.server.vessels):
+            a = 0
+            #TODO calculate and display result
 
 # ------------------------------------------------------------------------------------------------------
 
