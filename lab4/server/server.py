@@ -52,6 +52,8 @@ class BlackboardServer(HTTPServer):
         self.votes = {}
         self.vectors = {}
 
+        self.result = ""
+
 
         # ------------------------------------------------------------------------------------------------------
         # Contact a specific vessel with a set of variables to transmit to it
@@ -304,7 +306,8 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
 
         #if all vectors are received, calculate and display result
         if len(self.server.vectors) == len(self.server.vessels):
-            a = 0
+            vrt = vote_result_template % "testing"
+            self.server.result = "testing"
             #TODO calculate and display result
 
 # ------------------------------------------------------------------------------------------------------
