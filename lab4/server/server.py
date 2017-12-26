@@ -282,8 +282,8 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
         if len(self.server.votes) == len(self.server.vessels):
             #add own vote vector to the dict
             myvotes = ""
-            for vote in self.server.votes:
-                myvotes += str(vote)
+            for i in range(1, len(self.server.votes) + 1):
+                myvotes += str(self.server.votes[i])
             self.server.vectors[self.server.vessel_id] = myvotes
 
             # byzantine behaviour
@@ -306,9 +306,44 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
 
         #if all vectors are received, calculate and display result
         if len(self.server.vectors) == len(self.server.vessels):
-            vrt = vote_result_template % "testing"
-            self.server.result = "testing"
-            #TODO calculate and display result
+            self.server.result = ""
+            finalattack = 0
+            finalretreat = 0
+            #create the string to display
+            for key in range(1, len(self.server.vectors) + 1):
+                votes = ""
+
+                for c in self.server.vectors[key]:
+                    if c == "0":
+                        votes += " Retreat"
+                    else:
+                        votes += " Attack"
+                self.server.result += "Votes from vessel " + str(key) + ":" + votes + "\n"
+
+            #calculate result
+            for i in range(0, len(self.server.vectors)):
+                attack = 0
+                retreat = 0
+                #compare the vote everyone received from vessel i
+                for key in range(1, len(self.server.vectors) + 1):
+                    #dont include what vote a vessel got from itself, unless there is only one vessel
+                    if not i + 1 == key or len(self.server.vessels) == 1:
+                        vector = self.server.vectors[key]
+                        if vector[i] == "1":
+                            attack += 1
+                        else:
+                            retreat += 1
+                #add the result vote
+                if attack >= retreat:
+                    finalattack += 1
+                else:
+                    finalretreat += 1
+
+            #add the final result to the string
+            if finalattack >= finalretreat:
+                self.server.result += "Result: Attack"
+            else:
+                self.server.result += "Result: Retreat"
 
 # ------------------------------------------------------------------------------------------------------
 
