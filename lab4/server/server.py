@@ -231,7 +231,6 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
 
         post_data = self.parse_POST_request()
         self.set_HTTP_headers(200)
-        retransmit = False
 
         #post from another vessel
         if 'action' in post_data:
@@ -264,6 +263,7 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
 
             #propagate the vote, or the byzantine behaviour
             if self.server.byzantine:
+                self.set_HTTP_headers(200)
                 thread = Thread(target=self.server.byzantine_value_to_vessels,
                                 args=(self.path, 'round1', self.server.vessel_id, self.server.byzantine_votes))
                 # We kill the process if we kill the server
@@ -271,6 +271,7 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
                 # We start the thread
                 thread.start()
             else:
+                self.set_HTTP_headers(200)
                 thread = Thread(target=self.server.propagate_value_to_vessels,
                                 args=(self.path, 'round1', self.server.vessel_id, self.server.vote))
                 # We kill the process if we kill the server
@@ -292,6 +293,7 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
                 self.server.byzantine_vectors = self.compute_byzantine_vote_round2(3, 4, 1)
 
                 # send own votes to other vessels
+                self.set_HTTP_headers(200)
                 thread = Thread(target=self.server.byzantine_value_to_vessels,
                                 args=(self.path, 'round2', self.server.vessel_id, self.server.byzantine_vectors))
                 thread.daemon = True
@@ -300,6 +302,7 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
             # honest behaviour
             else:
                 # send own vector to other vessels
+                self.set_HTTP_headers(200)
                 thread = Thread(target=self.server.propagate_value_to_vessels,
                                 args=(self.path, 'round2', self.server.vessel_id, myvotes))
                 thread.daemon = True
