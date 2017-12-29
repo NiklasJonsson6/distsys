@@ -280,6 +280,7 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
 
         # if all votes are cast, start round 2
         if len(self.server.votes) == len(self.server.vessels):
+            print("All votes cast, starting round 2")
             #add own vote vector to the dict
             myvotes = ""
             for i in range(1, len(self.server.votes) + 1):
@@ -306,11 +307,13 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
 
         #if all vectors are received, calculate and display result
         if len(self.server.vectors) == len(self.server.vessels):
+            print("All vectors received, calculating result, vectors:" + str(len(self.server.vectors)) + " vessels:" + str(len(self.server.vessels)))
             self.server.result = ""
             finalattack = 0
             finalretreat = 0
             #create the string to display
             for key in range(1, len(self.server.vectors) + 1):
+                print("Creating string")
                 votes = ""
 
                 for c in self.server.vectors[key]:
@@ -322,6 +325,7 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
 
             #calculate result
             for i in range(0, len(self.server.vectors)):
+                print("Calculating result")
                 attack = 0
                 retreat = 0
                 #compare the vote everyone received from vessel i
