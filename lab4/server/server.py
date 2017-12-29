@@ -260,7 +260,7 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
             elif self.path == "/vote/byzantine":
                 self.server.byzantine = True
                 self.server.byzantine_votes = self.compute_byzantine_vote_round1(3, 4, 1)
-                self.server.votes[self.server.vessel_id] = self.server.byzantine_votes[self.server.vessel_id-1]
+                self.server.votes[self.server.vessel_id] = 0
 
             #propagate the vote, or the byzantine behaviour
             if self.server.byzantine:
