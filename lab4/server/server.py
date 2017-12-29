@@ -237,13 +237,13 @@ class BlackboardRequestHandler(BaseHTTPRequestHandler):
         if 'action' in post_data:
             if ''.join(post_data['action']) == 'round1':
                 #add the vote to a dict of votes
-                key = ''.join(post_data['key'])
+                key = int(''.join(post_data['key']))
                 value = ''.join(post_data['value'])
                 self.server.votes[key] = value
 
             elif ''.join(post_data['action']) == 'round2':
                 #add the vector to a dict of vectors
-                key = ''.join(post_data['key'])
+                key = int(''.join(post_data['key']))
                 #the values are represented by a string with length == number_of_vessels and 0, 1 for wait, attack
                 #the first character in the string represents the vote of vessel number one, etc
                 value = ''.join(post_data['value'])
